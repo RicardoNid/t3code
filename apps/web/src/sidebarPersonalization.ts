@@ -136,12 +136,34 @@ export function importSidebarPersonalization(text: string): SidebarPersonalizati
 
 export function modelBrand(
   model: string,
-): "deepseek" | "claude" | "openai" | "gemini" | "qwen" | null {
+):
+  | "deepseek"
+  | "claude"
+  | "openai"
+  | "gemini"
+  | "qwen"
+  | "kimi"
+  | "zhipu"
+  | "minimax"
+  | "doubao"
+  | "baidu"
+  | "hunyuan"
+  | "stepfun"
+  | "yi"
+  | null {
   const name = model.toLowerCase();
   if (/(?:^|[/:._-])deepseek(?:[/:._-]|$)/.test(name)) return "deepseek";
   if (/(?:^|[/:._-])claude(?:[/:._-]|$)/.test(name)) return "claude";
   if (/(?:^|[/:._-])(?:gpt|chatgpt|codex|o[134])(?:[/:._-]|$)/.test(name)) return "openai";
   if (/(?:^|[/:._-])gemini(?:[/:._-]|$)/.test(name)) return "gemini";
   if (/(?:^|[/:._-])qwen\d*(?:[/:._-]|$)/.test(name)) return "qwen";
+  if (/(?:^|[/:._-])(?:kimi|moonshot)(?:[/:._-]|$)/.test(name)) return "kimi";
+  if (/(?:^|[/:._-])(?:glm|zhipu|zai)(?:[/:._-]|$)/.test(name)) return "zhipu";
+  if (/(?:^|[/:._-])minimax(?:[/:._-]|$)/.test(name)) return "minimax";
+  if (/(?:^|[/:._-])(?:doubao|seed)(?:[/:._-]|$)/.test(name)) return "doubao";
+  if (/(?:^|[/:._-])ernie(?:[/:._-]|$)/.test(name)) return "baidu";
+  if (/(?:^|[/:._-])hunyuan(?:[/:._-]|$)/.test(name)) return "hunyuan";
+  if (/(?:^|[/:._-])(?:stepfun|step)(?:[/:._-]|$)/.test(name)) return "stepfun";
+  if (/(?:^|[/:._-])yi(?:[/:._-]|$)/.test(name)) return "yi";
   return null;
 }

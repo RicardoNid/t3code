@@ -2,6 +2,7 @@ import {
   DEFAULT_CLIENT_SETTINGS,
   EnvironmentId,
   ProjectId,
+  ProviderInstanceId,
   RunId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -97,7 +98,7 @@ describe("sidebar header new thread", () => {
   });
 });
 
-it("keeps named groups independent of status shelves and preserves saved links", async () => {
+it("groups only Inbox threads and keeps membership across working transitions", async () => {
   using cleanup = new DisposableStack();
   const key = "t3code:personal-sidebar:v1";
   const previous = localStorage.getItem(key);
@@ -156,29 +157,65 @@ it("keeps named groups independent of status shelves and preserves saved links",
       <Sidebar routeReveal={{ observedKey: null, pendingKey: null }} />
     </SidebarProvider>,
   );
+  await expect.element(screen.getByRole("button", { name: /^DAS schedule, / })).toBeVisible();
   await expect
-    .element(screen.getByRole("button", { name: "DAS schedule, active", exact: true }))
-    .toBeVisible();
-  await expect.element(screen.getByText("Remote planning", { exact: true })).toBeVisible();
+    .element(screen.getByText("Remote planning", { exact: true }))
+    .not.toBeInTheDocument();
   const group = screen.getByRole("button", { name: /Scheduling/ });
   await userEvent.click(group);
   await expect.element(group).toHaveAttribute("aria-expanded", "false");
   await expect
-    .element(screen.getByRole("button", { name: "DAS schedule, active", exact: true }))
+    .element(screen.getByRole("button", { name: /^DAS schedule, / }))
     .not.toBeInTheDocument();
   await expect
     .element(screen.getByRole("button", { name: "Unsorted task, active", exact: true }))
     .toBeVisible();
-  await userEvent.click(screen.getByRole("button", { name: "Status", exact: true }));
   await expect
-    .element(screen.getByRole("button", { name: "DAS schedule, active", exact: true }))
-    .toBeVisible();
-  await userEvent.click(screen.getByRole("button", { name: "Groups", exact: true }));
+    .element(screen.getByRole("button", { name: "Status", exact: true }))
+    .not.toBeInTheDocument();
+  await userEvent.click(group);
+  const initialThreads = vi.mocked(useQuietThreadShells)();
+  vi.mocked(useQuietThreadShells).mockReturnValue(
+    initialThreads.map((thread) =>
+      thread.id === "das"
+        ? {
+            ...thread,
+            runtime: {
+              status: "running",
+              activeRunId: null,
+              providerInstanceId: ProviderInstanceId.make("codex"),
+              providerName: "Codex",
+              lastError: null,
+              updatedAt: "2026-11-05T00:00:00.000Z",
+            },
+          }
+        : thread,
+    ),
+  );
+  await screen.rerender(
+    <SidebarProvider>
+      <Sidebar routeReveal={{ observedKey: null, pendingKey: null }} />
+    </SidebarProvider>,
+  );
   await expect
-    .element(screen.getByRole("button", { name: /Scheduling/ }))
-    .toHaveAttribute("aria-expanded", "false");
-  await userEvent.click(screen.getByRole("button", { name: /Scheduling/ }));
-  await expect.element(screen.getByText("Remote planning", { exact: true })).toBeVisible();
+    .element(screen.getByRole("button", { name: /^DAS schedule, / }))
+    .not.toBeInTheDocument();
+  expect(JSON.parse(localStorage.getItem(key)!).groups[0].members[0].key).toBe("local:das");
+  vi.mocked(useQuietThreadShells).mockReturnValue(
+    initialThreads.map((thread) =>
+      thread.id === "das" ? { ...thread, hasPendingUserInput: true } : thread,
+    ),
+  );
+  await screen.rerender(
+    <SidebarProvider>
+      <Sidebar routeReveal={{ observedKey: null, pendingKey: null }} />
+    </SidebarProvider>,
+  );
+  await expect.element(screen.getByRole("button", { name: /^DAS schedule, / })).toBeVisible();
+  await userEvent.click(group);
+  await expect
+    .element(screen.getByRole("button", { name: /^DAS schedule, / }))
+    .not.toBeInTheDocument();
 });
 
 it("clears a group's completion badge when a legacy local visit advances", async () => {

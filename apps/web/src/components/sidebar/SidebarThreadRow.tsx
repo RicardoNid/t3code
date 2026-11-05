@@ -310,18 +310,23 @@ function SidebarThreadTooltip({
         ) : null}
         {driverKind ? (
           <div className="flex min-w-0 items-center gap-2">
-            <ProviderInstanceIcon
-              driverKind={driverKind}
-              displayName={
-                providerEntry?.displayName ?? thread.runtime?.providerName ?? modelInstanceId
+            <SidebarModelIcon
+              model={thread.modelSelection.model}
+              harness={
+                <ProviderInstanceIcon
+                  driverKind={driverKind}
+                  displayName={
+                    providerEntry?.displayName ?? thread.runtime?.providerName ?? modelInstanceId
+                  }
+                  accentColor={providerEntry?.accentColor}
+                  acpRegistryAgentId={providerEntry?.acpRegistryAgentId}
+                  acpRegistryIconUrl={providerEntry?.acpRegistryIconUrl}
+                  showBadge={showInstanceBadge && providerEntry?.accentColor !== undefined}
+                  badgeContent="none"
+                  badgeClassName="h-2 min-w-2 px-0"
+                  iconClassName="size-3 shrink-0 grayscale opacity-60"
+                />
               }
-              accentColor={providerEntry?.accentColor}
-              acpRegistryAgentId={providerEntry?.acpRegistryAgentId}
-              acpRegistryIconUrl={providerEntry?.acpRegistryIconUrl}
-              showBadge={showInstanceBadge && providerEntry?.accentColor !== undefined}
-              badgeContent="none"
-              badgeClassName="h-2 min-w-2 px-0"
-              iconClassName="size-3 shrink-0 grayscale opacity-60"
             />
             <div className="min-w-0 truncate text-foreground/75">
               {showInstanceBadge && providerEntry

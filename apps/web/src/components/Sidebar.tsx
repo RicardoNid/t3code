@@ -989,7 +989,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     },
   });
   const [personalSettings, updatePersonalSettings] = useSidebarPersonalization();
-  const personalGrouped = personalSettings.view === "groups";
+  const personalGrouped = personalSettings.groups.length > 0;
   const [groupAssignment, setGroupAssignment] = useState<{ key: string; title: string } | null>(
     null,
   );
@@ -1339,29 +1339,35 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     threads,
     delegatedUnderParent,
     routeRowThreadKey,
-    folderGroups: boringSidebarEnabled
-      ? scopedProjectGroups.length === 0
-        ? // An archived project keeps a folder for its active threads, below the rest.
-          [...scopeGroups, ...projectGroups.filter((project) => project.archived)]
-        : scopedProjectGroups
-      : null,
+    folderGroups:
+      boringSidebarEnabled && !personalGrouped
+        ? scopedProjectGroups.length === 0
+          ? // An archived project keeps a folder for its active threads, below the rest.
+            [...scopeGroups, ...projectGroups.filter((project) => project.archived)]
+          : scopedProjectGroups
+        : null,
     keepEmptyFolders: (group) =>
       scopedProjectGroups.length > 0 || (group.pinned && !group.archived),
   });
 
   const personalGroups = personalSidebarGroups(
     personalSettings,
-    searchableThreads.map((thread) => ({ key: threadShellKey(thread), title: thread.title })),
+    [...pinnedThreads, ...activeThreads].map((thread) => ({
+      key: threadShellKey(thread),
+      title: thread.title,
+    })),
     routeRowThreadKey,
-    scopedProjectKeys === null,
+    false,
   );
-  const threadByKey = personalGrouped
-    ? new Map(searchableThreads.map((thread) => [threadShellKey(thread), thread] as const))
-    : statusThreadByKey;
+  const threadByKey = statusThreadByKey;
   const orderedThreadKeys = personalGrouped
-    ? personalGroups
-        .flatMap((group) => group.visibleMembers.map((member) => member.key))
-        .filter((key) => threadByKey.has(key))
+    ? [
+        ...personalGroups.flatMap((group) => group.visibleMembers.map((member) => member.key)),
+        ...statusOrderedThreadKeys.filter((key) => {
+          const section = sectionByThreadKey.get(key);
+          return section !== "active" && section !== "pinned";
+        }),
+      ]
     : statusOrderedThreadKeys;
 
   // Ranked across environments as the palette ranks them, so one
@@ -1924,12 +1930,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   };
   const hasProjectFolders = projectFolders !== null && projectFolders.length > 0;
   const sidebarListItemsFresh = ((): readonly SidebarListItem[] => {
-    if (personalGrouped)
-      return orderedThreadKeys.map((key) => ({
-        kind: "thread",
-        key,
-        section: sectionByThreadKey.get(key) ?? "active",
-      }));
     const rowsOf = (
       list: readonly EnvironmentThreadShell[],
       section: SidebarSection,
@@ -1952,11 +1952,21 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     }
     const items: SidebarListItem[] = [{ kind: "marker", marker: "pinned-header" }];
     const pinnedRows = rowsOf(pinnedThreads, "pinned");
-    items.push(...pinnedRows);
+    if (!personalGrouped) items.push(...pinnedRows);
     items.push({ kind: "marker", marker: "pinned-divider" });
     const activeRows = rowsOf(activeThreads, "active");
     items.push({ kind: "marker", marker: "active-placeholder" });
-    items.push(...activeRows);
+    items.push(
+      ...(personalGrouped
+        ? personalGroups.flatMap((group) =>
+            group.visibleMembers.map((member) => ({
+              kind: "thread" as const,
+              key: member.key,
+              section: "active" as const,
+            })),
+          )
+        : activeRows),
+    );
     if (workingThreads.length > 0) {
       items.push({ kind: "marker", marker: "working-header" });
       items.push(...rowsOf(visibleWorkingThreads, "working"));
@@ -3478,79 +3488,66 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           onDraftContextMenu={handleDraftContextMenu}
                         />,
                       ];
-                      if (personalGrouped) {
-                        for (const group of personalGroups) {
-                          items.push(
-                            <PersonalSidebarGroupHeader
-                              key={`group:${group.id}`}
-                              id={group.id}
-                              name={group.name}
-                              collapsed={group.collapsed}
-                              threads={group.members.flatMap((member) => {
-                                const thread = threadByKey.get(member.key);
-                                return thread ? [thread] : [];
-                              })}
-                              onToggle={() =>
-                                updatePersonalSettings((current) =>
-                                  group.id === ""
-                                    ? {
-                                        ...current,
-                                        ungroupedCollapsed: !current.ungroupedCollapsed,
-                                      }
-                                    : {
-                                        ...current,
-                                        groups: current.groups.map((entry) =>
-                                          entry.id === group.id
-                                            ? { ...entry, collapsed: !entry.collapsed }
-                                            : entry,
-                                        ),
-                                      },
-                                )
-                              }
-                            />,
-                          );
-                          for (const member of group.visibleMembers) {
-                            const thread = threadByKey.get(member.key);
-                            if (thread)
-                              items.push(
-                                renderThreadRow(
-                                  thread,
-                                  sectionByThreadKey.get(member.key) ?? "active",
-                                  `personal-group:${group.id}`,
-                                ),
-                              );
-                            else
-                              items.push(
-                                <li key={member.key} className="list-none">
-                                  <button
-                                    type="button"
-                                    data-sidebar-row={member.key}
-                                    data-sidebar-parent={`personal-group:${group.id}`}
-                                    className="flex w-full flex-col rounded-md px-3 py-2 text-left text-sm hover:bg-sidebar-row-hover"
-                                    onClick={() => {
-                                      const ref = parseScopedThreadKey(member.key);
-                                      if (ref) navigateToThread(ref);
-                                    }}
-                                    onContextMenu={(event) => {
-                                      event.preventDefault();
-                                      setGroupAssignment(member);
-                                    }}
-                                  >
-                                    <span className="max-w-full truncate">{member.title}</span>
-                                    <span className="text-xs text-muted-foreground">
-                                      Not loaded · open to reconnect
-                                    </span>
-                                  </button>
-                                </li>,
-                              );
-                          }
-                        }
-                        return items;
-                      }
                       for (const item of sidebarListItems) {
+                        if (
+                          personalGrouped &&
+                          item.kind === "marker" &&
+                          item.marker === "active-placeholder"
+                        ) {
+                          for (const group of personalGroups) {
+                            if (group.members.length === 0) continue;
+                            items.push(
+                              <PersonalSidebarGroupHeader
+                                key={`group:${group.id}`}
+                                id={group.id}
+                                name={group.name}
+                                collapsed={group.collapsed}
+                                threads={group.members.flatMap((member) => {
+                                  const thread = threadByKey.get(member.key);
+                                  return thread ? [thread] : [];
+                                })}
+                                onToggle={() =>
+                                  updatePersonalSettings((current) =>
+                                    group.id === ""
+                                      ? {
+                                          ...current,
+                                          ungroupedCollapsed: !current.ungroupedCollapsed,
+                                        }
+                                      : {
+                                          ...current,
+                                          groups: current.groups.map((entry) =>
+                                            entry.id === group.id
+                                              ? { ...entry, collapsed: !entry.collapsed }
+                                              : entry,
+                                          ),
+                                        },
+                                  )
+                                }
+                              />,
+                            );
+                            for (const member of group.visibleMembers) {
+                              const thread = threadByKey.get(member.key);
+                              if (thread)
+                                items.push(
+                                  renderThreadRow(
+                                    thread,
+                                    sectionByThreadKey.get(member.key) ?? "active",
+                                    `personal-group:${group.id}`,
+                                  ),
+                                );
+                            }
+                          }
+                          continue;
+                        }
+
                         if (item.kind === "thread") {
                           // Folders draw active rows in their own place below.
-                          if (projectFolders !== null && item.section === "active") continue;
+                          if (
+                            (personalGrouped &&
+                              (item.section === "active" || item.section === "pinned")) ||
+                            (projectFolders !== null && item.section === "active")
+                          )
+                            continue;
                           items.push(renderThreadRow(threadByKey.get(item.key)!, item.section));
                           continue;
                         }

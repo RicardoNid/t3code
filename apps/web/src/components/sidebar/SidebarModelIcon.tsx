@@ -5,7 +5,28 @@ import deepseek from "../../assets/model-icons/deepseek.svg";
 import gemini from "../../assets/model-icons/gemini.svg";
 import qwen from "../../assets/model-icons/qwen.svg";
 
-const images = { deepseek, gemini, qwen };
+import kimi from "../../assets/model-icons/kimi.svg";
+import zhipu from "../../assets/model-icons/zhipu.svg";
+import minimax from "../../assets/model-icons/minimax.svg";
+import doubao from "../../assets/model-icons/doubao.svg";
+import baidu from "../../assets/model-icons/baidu.svg";
+import hunyuan from "../../assets/model-icons/hunyuan.svg";
+import stepfun from "../../assets/model-icons/stepfun.svg";
+import yi from "../../assets/model-icons/yi.svg";
+
+const images = {
+  deepseek,
+  gemini,
+  qwen,
+  kimi,
+  zhipu,
+  minimax,
+  doubao,
+  baidu,
+  hunyuan,
+  stepfun,
+  yi,
+};
 
 export function SidebarModelIcon(props: { model: string; harness: ReactNode }) {
   const [settings] = useSidebarPersonalization();

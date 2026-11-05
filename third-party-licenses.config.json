@@ -8,6 +8,13 @@
       "noticeFile": "apps/web/src/assets/model-icons/LICENSE.txt"
     },
     {
+      "name": "Lobe Icons model icons",
+      "bundles": ["assets", "desktop", "web"],
+      "license": "MIT",
+      "sourceUrl": "https://github.com/lobehub/lobe-icons",
+      "noticeFile": "apps/web/src/assets/model-icons/LOBE-LICENSE"
+    },
+    {
       "name": "opencode Office viewers",
       "bundles": ["web"],
       "license": "MIT",

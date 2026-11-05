@@ -1,26 +1,24 @@
 # Personal sidebar
 
-Choose **Groups** above the thread list to organize long-running work. **Status**
-returns to the usual Working, Snoozed and Settled layout.
+Named groups organize the Inbox in the same sidebar as Working, Snoozed and
+Settled. Those status shelves stay flat. A thread keeps its group membership
+when it changes state and returns to its group when it comes back to the Inbox.
+Pinned Inbox threads also appear in their assigned group.
 
 Use **Customize sidebar** to create, rename, reorder or delete groups. Right-click
 a thread and choose **Move to group** to assign it, create a group for it, or move
 it back to Ungrouped. Removing a group keeps its threads.
 
-Each group folds independently. Folding never pauses, snoozes or settles a thread.
-Running and settled threads keep their group membership. The open thread remains
-visible inside a folded group; group headers show attention, failure, unread or
-working indicators. The number counts completed threads you have not viewed, not all threads in the group; it disappears when none remain unread. Project filters still apply. Threads that have not loaded
-remain as saved links when showing all projects; open one to load it or reconnect.
-Right-click a saved link to move or remove it from a group.
-
-In group view, use the menu to move threads. Status drag-and-drop is disabled so
-moving a thread cannot accidentally settle or wake it. Switch to Status for the
-original drag-and-drop behavior.
+Each group folds independently without pausing or settling work. The open Inbox
+thread remains visible inside its folded group. Header counts include only unread
+completed threads currently in that group, not members in other status shelves.
+Project filters still apply. Unavailable threads retain their saved membership
+and reappear when their state loads. With groups configured, use the menus to
+change thread state or membership; manual sidebar sorting is disabled.
 
 Customize sidebar also chooses model-only, model-plus-harness or harness-only
 icons. Recognized model families include DeepSeek, Claude, GPT/Codex, Gemini and
-Qwen. Unknown models retain their harness icon. Device icons accept an emoji,
+Qwen, Kimi, GLM, MiniMax, Doubao/Seed, ERNIE, Hunyuan, Step and Yi. Card and hover-detail icons use the same preference. Unknown models retain their harness icon. Device icons accept an emoji,
 short label, or PNG/JPEG/WebP image up to 128 KB; clear an override to restore the
 detected device icon.
 

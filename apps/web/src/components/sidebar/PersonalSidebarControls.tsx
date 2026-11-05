@@ -41,22 +41,6 @@ export function PersonalSidebarControls(props: {
   return (
     <>
       <div className="flex items-center gap-1 px-2 pb-1" aria-label="Sidebar view">
-        <Button
-          size="compact"
-          variant={settings.view === "status" ? "secondary" : "ghost-muted"}
-          aria-pressed={settings.view === "status"}
-          onClick={() => update((current) => ({ ...current, view: "status" }))}
-        >
-          Status
-        </Button>
-        <Button
-          size="compact"
-          variant={settings.view === "groups" ? "secondary" : "ghost-muted"}
-          aria-pressed={settings.view === "groups"}
-          onClick={() => update((current) => ({ ...current, view: "groups" }))}
-        >
-          Groups
-        </Button>
         <span className="ml-auto">
           <Button
             size="icon-xs"
@@ -81,7 +65,7 @@ export function PersonalSidebarControls(props: {
             </DialogTitle>
             <DialogDescription>
               {props.assignment?.title ??
-                "Groups keep their threads when work starts, snoozes or settles. Preferences are saved on this client; export them to use on another device."}
+                "Groups organize the Inbox. Working, Snoozed and Settled keep their own shelves; group membership is preserved. Preferences are saved on this client; export them to use on another device."}
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
@@ -95,7 +79,7 @@ export function PersonalSidebarControls(props: {
                   update((current) => {
                     const next = {
                       ...current,
-                      view: "groups" as const,
+                      view: "status" as const,
                       groups: [
                         ...current.groups,
                         { id, name: name.trim(), collapsed: false, members: [] },
@@ -214,10 +198,11 @@ export function PersonalSidebarControls(props: {
                         <Button
                           key={value}
                           size="compact"
-                          variant={settings.modelIcons === value ? "secondary" : "outline"}
+                          variant={settings.modelIcons === value ? "default" : "ghost"}
                           aria-pressed={settings.modelIcons === value}
                           onClick={() => update((current) => ({ ...current, modelIcons: value }))}
                         >
+                          {settings.modelIcons === value ? "✓ " : ""}
                           {label}
                         </Button>
                       ))}
