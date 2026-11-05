@@ -9,7 +9,7 @@ import {
 import { describe, expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
-import { render } from "../../test/render";
+import { act, render } from "../../test/render";
 import { openCommandPalette } from "../commandPaletteBus";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { __setClientSettingsForTests, getClientSettings } from "../hooks/useSettings";
@@ -17,6 +17,11 @@ import { useProjects, useQuietThreadShells } from "../state/entities";
 import { makeThreadFixture } from "../test-fixtures";
 import type { Project } from "../types";
 import Sidebar from "./Sidebar";
+import { resolveSidebarReorderableThreadKeys } from "./Sidebar.logic";
+import { useEnvironmentScope } from "../state/session";
+import { THREAD_CONTEXT_DROP_EVENT } from "./chat/threadContextDrag";
+vi.mock("./Sidebar.logic", { spy: true });
+vi.mock("../state/session", { spy: true });
 import { PersonalSidebarGroupHeader } from "./sidebar/PersonalSidebarGroupHeader";
 import { useUiStateStore } from "../uiStateStore";
 import { SidebarProvider } from "./ui/sidebar";
@@ -100,6 +105,13 @@ describe("sidebar header new thread", () => {
 
 it("groups only Inbox threads and keeps membership across working transitions", async () => {
   using cleanup = new DisposableStack();
+  vi.mocked(useEnvironmentScope).mockReturnValue(true);
+  cleanup.defer(() => vi.mocked(useEnvironmentScope).mockRestore());
+  vi.mocked(resolveSidebarReorderableThreadKeys).mockReturnValue({
+    draggableThreadKeys: new Set(["local:das", "local:other"]),
+    activeReorderableThreadKeys: new Set(["local:das", "local:other"]),
+  });
+  cleanup.defer(() => vi.mocked(resolveSidebarReorderableThreadKeys).mockRestore());
   const key = "t3code:personal-sidebar:v1";
   const previous = localStorage.getItem(key);
   cleanup.defer(() => {
@@ -161,6 +173,66 @@ it("groups only Inbox threads and keeps membership across working transitions", 
   await expect
     .element(screen.getByText("Remote planning", { exact: true }))
     .not.toBeInTheDocument();
+  await expect
+    .element(screen.getByRole("button", { name: "Ungrouped", exact: true }))
+    .not.toBeInTheDocument();
+  const target = document.createElement("div");
+  target.setAttribute("data-thread-context-drop", "true");
+  Object.assign(target.style, {
+    position: "fixed",
+    right: "0",
+    top: "0",
+    width: "100px",
+    height: "100px",
+    zIndex: "99999",
+  });
+  document.body.append(target);
+  cleanup.defer(() => target.remove());
+  const dropped = vi.fn();
+  target.addEventListener(THREAD_CONTEXT_DROP_EVENT, dropped);
+  screen.container.style.width = "250px";
+  const row = screen.container.querySelector<HTMLElement>('[data-sidebar-row="local:das"]')!;
+  const rect = row.getBoundingClientRect();
+  const destination = target.getBoundingClientRect();
+  const pointer = {
+    pointerId: 91,
+    pointerType: "mouse",
+    isPrimary: true,
+    button: 0,
+    buttons: 1,
+    bubbles: true,
+  };
+  await act(() =>
+    row.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        ...pointer,
+        clientX: rect.left + 30,
+        clientY: rect.top + 20,
+      }),
+    ),
+  );
+  await act(() =>
+    document.dispatchEvent(
+      new PointerEvent("pointermove", {
+        ...pointer,
+        clientX: destination.left + 20,
+        clientY: destination.top + 20,
+      }),
+    ),
+  );
+  await expect.element(target).toHaveAttribute("data-thread-context-over", "true");
+  await act(() =>
+    document.dispatchEvent(
+      new PointerEvent("pointerup", {
+        ...pointer,
+        buttons: 0,
+        clientX: destination.left + 20,
+        clientY: destination.top + 20,
+      }),
+    ),
+  );
+  expect(dropped.mock.calls[0]?.[0].detail).toEqual([{ environmentId: "local", threadId: "das" }]);
+  target.remove();
   const group = screen.getByRole("button", { name: /Scheduling/ });
   await userEvent.click(group);
   await expect.element(group).toHaveAttribute("aria-expanded", "false");

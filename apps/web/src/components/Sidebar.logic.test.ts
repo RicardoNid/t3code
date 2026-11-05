@@ -21,6 +21,7 @@ import {
   shouldRecedeSidebarThread,
   sortInboxThreadsByReturn,
   resolveSidebarDropTarget,
+  resolveGroupedSidebarDropTarget,
   planSidebarThreadDrop,
   resolveSidebarReorderableThreadKeys,
   sortPinnedThreadsForSidebar,
@@ -1640,4 +1641,42 @@ describe("shouldCreateNewThreadInCurrentProject", () => {
     expect(shouldCreateNewThreadInCurrentProject(false, 0, 0)).toBe(true);
     expect(shouldCreateNewThreadInCurrentProject(true, 2, 2)).toBe(true);
   });
+});
+
+it("keeps grouped drags within membership while preserving pin, settle and wake targets", () => {
+  const items: SidebarListItem[] = [
+    { kind: "marker", marker: "pinned-header" },
+    { kind: "marker", marker: "pinned-divider" },
+    { kind: "marker", marker: "active-placeholder" },
+    { kind: "thread", key: "a", section: "active" },
+    { kind: "thread", key: "b", section: "active" },
+    { kind: "thread", key: "p", section: "pinned" },
+    { kind: "thread", key: "c", section: "active" },
+    { kind: "marker", marker: "snoozed-header" },
+    { kind: "thread", key: "z", section: "snoozed" },
+    { kind: "marker", marker: "settled-header" },
+    { kind: "thread", key: "s", section: "settled" },
+  ];
+  const groupByKey = new Map([
+    ["a", "g"],
+    ["b", "g"],
+    ["p", "g"],
+    ["c", "other"],
+  ]);
+  const drop = (activeKey: string, overId: string) =>
+    resolveGroupedSidebarDropTarget({
+      items,
+      activeKey,
+      overId,
+      groupByKey,
+      pinnedOrder: ["p"],
+      activeOrder: ["a", "b", "c"],
+    });
+  expect(drop("a", "b")?.activeOrder).toEqual(["b", "a", "c"]);
+  expect(drop("a", "c")).toBeNull();
+  expect(drop("a", "p")?.section).toBe("pinned");
+  expect(drop("a", "s")?.section).toBe("settled");
+  expect(drop("s", "a")?.section).toBe("active");
+  expect(drop("z", "a")?.section).toBe("active");
+  expect(drop("a", "z")).toBeNull();
 });

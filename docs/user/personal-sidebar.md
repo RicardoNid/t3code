@@ -13,8 +13,14 @@ Each group folds independently without pausing or settling work. The open Inbox
 thread remains visible inside its folded group. Header counts include only unread
 completed threads currently in that group, not members in other status shelves.
 Project filters still apply. Unavailable threads retain their saved membership
-and reappear when their state loads. With groups configured, use the menus to
-change thread state or membership; manual sidebar sorting is disabled.
+and reappear when their state loads. Ungrouped threads appear directly in the
+Inbox, without a folder or collapse control.
+
+Drag cards into a conversation to reference them, or onto the native status
+boundaries to pin, unpin, settle, restore or wake them. Within a group, manual
+ordering follows the native rules: active ordering is automatic while the Working
+section is enabled. Changing group membership still uses **Move to group**;
+dragging between groups does not reassign a thread.
 
 Customize sidebar also chooses model-only, model-plus-harness or harness-only
 icons. Recognized model families include DeepSeek, Claude, GPT/Codex, Gemini and

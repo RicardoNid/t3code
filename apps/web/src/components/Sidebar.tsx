@@ -25,7 +25,7 @@ import {
   type DragStartEvent,
   type Modifier,
 } from "@dnd-kit/core";
-import { SortableContext } from "@dnd-kit/sortable";
+import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { restrictToFirstScrollableAncestor, restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import {
   canSnooze,
@@ -197,6 +197,7 @@ import {
   resolveAdjacentThreadId,
   resolveSidebarSweepKeys,
   resolveSidebarDropTarget,
+  resolveGroupedSidebarDropTarget,
   resolveSidebarDropVerb,
   resolveSidebarThreadSection,
   resolveSidebarReorderableThreadKeys,
@@ -1962,7 +1963,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             group.visibleMembers.map((member) => ({
               kind: "thread" as const,
               key: member.key,
-              section: "active" as const,
+              section: sectionByThreadKey.get(member.key) ?? "active",
             })),
           )
         : activeRows),
@@ -2027,9 +2028,25 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     previousShelfExpansionKeyRef.current = shelfExpansionKey;
     listMotionRef.current?.update(listMotionPass.animate && shelvesUnchanged);
   }, [listMotionPass, shelfExpansionKey]);
+  const groupByThreadKey = new Map(
+    personalSettings.groups.flatMap((group) =>
+      group.members.map((member) => [member.key, group.id] as const),
+    ),
+  );
+  const resolveThreadDropTarget = (activeKey: string, overId: string) =>
+    personalGrouped
+      ? resolveGroupedSidebarDropTarget({
+          items: sidebarListItems,
+          activeKey,
+          overId,
+          groupByKey: groupByThreadKey,
+          pinnedOrder: pinnedKeys,
+          activeOrder: activeKeys,
+        })
+      : resolveSidebarDropTarget(sidebarListItems, activeKey, overId);
   const handleThreadDragOver = (event: DragOverEvent) => {
     const target = event.over
-      ? resolveSidebarDropTarget(sidebarListItems, String(event.active.id), String(event.over.id))
+      ? resolveThreadDropTarget(String(event.active.id), String(event.over.id))
       : null;
     setDragState((current) =>
       current === null || current.activeKey !== String(event.active.id)
@@ -2049,17 +2066,20 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           activeThreads,
           workingShelfEnabled,
         });
-  const sidebarSortingStrategy = createSidebarSortingStrategy({
-    items: sidebarListItems,
-    enabled: !isContextDrag && !personalGrouped,
-    boundaryLabelHeight: SIDEBAR_DRAG_LABEL_HEIGHT,
-    settledOrder: draggedSettledOrder,
-    ...(draggedActiveOrder === undefined ? {} : { activeOrder: draggedActiveOrder }),
-    settledExpanded: settledShelfExpanded,
-    settledVisibleCount,
-    routeThreadKey: routeRowThreadKey,
-    snoozedThreadCount: snoozedThreads.length,
-  });
+  const sidebarSortingStrategy =
+    personalGrouped && !isContextDrag
+      ? verticalListSortingStrategy
+      : createSidebarSortingStrategy({
+          items: sidebarListItems,
+          enabled: !isContextDrag && !personalGrouped,
+          boundaryLabelHeight: SIDEBAR_DRAG_LABEL_HEIGHT,
+          settledOrder: draggedSettledOrder,
+          ...(draggedActiveOrder === undefined ? {} : { activeOrder: draggedActiveOrder }),
+          settledExpanded: settledShelfExpanded,
+          settledVisibleCount,
+          routeThreadKey: routeRowThreadKey,
+          snoozedThreadCount: snoozedThreads.length,
+        });
   const draggedThreadKey = dragState?.activeKey;
   const draggedFromSection = dragState?.activeSection;
   const dragActivationY = dragState?.activationY;
@@ -2070,7 +2090,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     if (source === undefined) return createSidebarCollisionDetection(() => false);
     return createSidebarCollisionDetection(
       (id) => {
-        const target = resolveSidebarDropTarget(sidebarListItems, draggedThreadKey, id);
+        const target = resolveThreadDropTarget(draggedThreadKey, id);
         if (target === null) return false;
         return (
           planSidebarThreadDrop({
@@ -2091,7 +2111,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         );
       },
       {
-        items: sidebarListItems,
+        ...(personalGrouped ? {} : { items: sidebarListItems }),
         activationY: dragActivationY ?? null,
       },
     );
@@ -2100,9 +2120,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     const activeKey = String(event.active.id);
     const activeSection = sectionByThreadKey.get(activeKey);
     const target =
-      event.over === null
-        ? null
-        : resolveSidebarDropTarget(sidebarListItems, activeKey, String(event.over.id));
+      event.over === null ? null : resolveThreadDropTarget(activeKey, String(event.over.id));
     const activeThread = threadByKey.get(activeKey);
     if (activeSection === undefined || target === null || activeThread === undefined) return;
     const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
@@ -3379,7 +3397,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             sortableId={threadKey}
                             contextDrag={isContextDrag}
                             sortableDisabled={
-                              personalGrouped ||
                               projectFolders !== null ||
                               renamingThreadKey === threadKey ||
                               !draggableThreadKeys.has(threadKey) ||
@@ -3494,37 +3511,50 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           item.kind === "marker" &&
                           item.marker === "active-placeholder"
                         ) {
+                          items.push(
+                            <SidebarSectionPlaceholder
+                              key="active-placeholder"
+                              marker="active-placeholder"
+                              label="Inbox"
+                              showHint={
+                                from !== null &&
+                                personalGroups.every((group) => group.visibleMembers.length === 0)
+                              }
+                              isDropTarget={dragTargetSection === "active"}
+                            />,
+                          );
                           for (const group of personalGroups) {
                             if (group.members.length === 0) continue;
-                            items.push(
-                              <PersonalSidebarGroupHeader
-                                key={`group:${group.id}`}
-                                id={group.id}
-                                name={group.name}
-                                collapsed={group.collapsed}
-                                threads={group.members.flatMap((member) => {
-                                  const thread = threadByKey.get(member.key);
-                                  return thread ? [thread] : [];
-                                })}
-                                onToggle={() =>
-                                  updatePersonalSettings((current) =>
-                                    group.id === ""
-                                      ? {
-                                          ...current,
-                                          ungroupedCollapsed: !current.ungroupedCollapsed,
-                                        }
-                                      : {
-                                          ...current,
-                                          groups: current.groups.map((entry) =>
-                                            entry.id === group.id
-                                              ? { ...entry, collapsed: !entry.collapsed }
-                                              : entry,
-                                          ),
-                                        },
-                                  )
-                                }
-                              />,
-                            );
+                            if (group.id !== "")
+                              items.push(
+                                <PersonalSidebarGroupHeader
+                                  key={`group:${group.id}`}
+                                  id={group.id}
+                                  name={group.name}
+                                  collapsed={group.collapsed}
+                                  threads={group.members.flatMap((member) => {
+                                    const thread = threadByKey.get(member.key);
+                                    return thread ? [thread] : [];
+                                  })}
+                                  onToggle={() =>
+                                    updatePersonalSettings((current) =>
+                                      group.id === ""
+                                        ? {
+                                            ...current,
+                                            ungroupedCollapsed: !current.ungroupedCollapsed,
+                                          }
+                                        : {
+                                            ...current,
+                                            groups: current.groups.map((entry) =>
+                                              entry.id === group.id
+                                                ? { ...entry, collapsed: !entry.collapsed }
+                                                : entry,
+                                            ),
+                                          },
+                                    )
+                                  }
+                                />,
+                              );
                             for (const member of group.visibleMembers) {
                               const thread = threadByKey.get(member.key);
                               if (thread)
@@ -3532,7 +3562,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                   renderThreadRow(
                                     thread,
                                     sectionByThreadKey.get(member.key) ?? "active",
-                                    `personal-group:${group.id}`,
+                                    group.id === "" ? undefined : `personal-group:${group.id}`,
                                   ),
                                 );
                             }

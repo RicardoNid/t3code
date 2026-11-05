@@ -256,6 +256,45 @@ export function resolveSidebarDropTarget(
   return { section, pinnedOrder, activeOrder };
 }
 
+export function resolveGroupedSidebarDropTarget(input: {
+  items: readonly SidebarListItem[];
+  activeKey: string;
+  overId: string;
+  groupByKey: ReadonlyMap<string, string>;
+  pinnedOrder: readonly string[];
+  activeOrder: readonly string[];
+}): SidebarDropTarget | null {
+  const source = input.items.find((item) => item.kind === "thread" && item.key === input.activeKey);
+  const over = input.items.find((item) => sidebarListItemId(item) === input.overId);
+  if (source?.kind !== "thread" || !over) return null;
+  const fallback = resolveSidebarDropTarget(input.items, input.activeKey, input.overId);
+  const section = over.kind === "thread" ? over.section : fallback?.section;
+  if (!section || section === "working" || section === "snoozed") return null;
+  if (
+    over.kind === "thread" &&
+    source.section === section &&
+    (section === "active" || section === "pinned") &&
+    input.groupByKey.get(source.key) !== input.groupByKey.get(over.key)
+  )
+    return null;
+  const reorder = (order: readonly string[]) => {
+    const next = order.filter((key) => key !== input.activeKey);
+    const targetIndex = over.kind === "thread" ? next.indexOf(over.key) : -1;
+    const movingDown =
+      over.kind === "thread" &&
+      order.indexOf(input.activeKey) >= 0 &&
+      order.indexOf(input.activeKey) < order.indexOf(over.key);
+    const index = targetIndex < 0 ? next.length : targetIndex + (movingDown ? 1 : 0);
+    next.splice(index, 0, input.activeKey);
+    return next;
+  };
+  return {
+    section,
+    pinnedOrder: section === "pinned" ? reorder(input.pinnedOrder) : input.pinnedOrder,
+    activeOrder: section === "active" ? reorder(input.activeOrder) : input.activeOrder,
+  };
+}
+
 type SidebarThreadDropPlan =
   | { readonly kind: "none" }
   | {

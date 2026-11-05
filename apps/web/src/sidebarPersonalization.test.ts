@@ -58,6 +58,20 @@ describe("personal sidebar", () => {
     expect(grouped[0]?.members).toHaveLength(2);
     expect(grouped[0]?.visibleMembers.map((member) => member.key)).toEqual(["px:das"]);
     expect(grouped.at(-1)?.members.map((member) => member.key)).toEqual(["px:new"]);
+    const unfolded = personalSidebarGroups(
+      { ...settings(), ungroupedCollapsed: true },
+      available,
+      null,
+      false,
+    );
+    expect(unfolded.at(-1)?.visibleMembers.map((member) => member.key)).toEqual(["px:new"]);
+    const reordered = personalSidebarGroups(
+      settings(),
+      [{ key: "mac:das", title: "Other DAS" }, ...available],
+      null,
+      false,
+    );
+    expect(reordered[0]?.members.map((member) => member.key)).toEqual(["mac:das", "px:das"]);
     expect(personalSidebarGroups(settings(), available, null, false)[0]?.members).toHaveLength(1);
     expect(
       personalSidebarGroups({ ...settings(), groups: [] }, available, null, true)[0]?.members,

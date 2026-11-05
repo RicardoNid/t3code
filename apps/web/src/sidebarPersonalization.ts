@@ -92,12 +92,16 @@ export function personalSidebarGroups(
     {
       id: "",
       name: "Ungrouped",
-      collapsed: settings.ungroupedCollapsed,
+      collapsed: false,
       members: available.filter((member) => !assigned.has(member.key)),
     },
   ];
   return groups.map((group) => {
-    const members = group.members.filter((member) => includeUnavailable || byKey.has(member.key));
+    const memberKeys = new Set(group.members.map((member) => member.key));
+    const members = [
+      ...available.filter((member) => memberKeys.has(member.key)),
+      ...(includeUnavailable ? group.members.filter((member) => !byKey.has(member.key)) : []),
+    ];
     return {
       ...group,
       members,
