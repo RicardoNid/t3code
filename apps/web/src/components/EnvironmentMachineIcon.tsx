@@ -1,3 +1,4 @@
+import { useSidebarPersonalization, validDeviceIcon } from "../sidebarPersonalization";
 import type { EnvironmentMachineKind } from "@t3tools/contracts";
 import { CloudIcon, LaptopIcon, MonitorIcon, ServerIcon, type LucideProps } from "lucide-react";
 import type { FunctionComponent, SVGProps } from "react";
@@ -66,8 +67,26 @@ export function environmentMachineIcon(
 
 export function EnvironmentMachineIcon({
   kind,
+  environmentId,
   ...props
-}: LucideProps & { readonly kind: EnvironmentMachineKind }) {
+}: LucideProps & { readonly kind: EnvironmentMachineKind; readonly environmentId?: string }) {
+  const [settings] = useSidebarPersonalization();
+  const custom = environmentId ? settings.deviceIcons[environmentId] : undefined;
+  if (custom && validDeviceIcon(custom)) {
+    return custom.startsWith("data:image/") ? (
+      <img
+        src={custom}
+        alt=""
+        aria-hidden={props["aria-hidden"]}
+        className={props.className}
+        style={{ objectFit: "contain" }}
+      />
+    ) : (
+      <span aria-hidden={props["aria-hidden"]} className={props.className}>
+        {custom}
+      </span>
+    );
+  }
   const Icon = ICON_BY_KIND[kind];
   return <Icon {...props} />;
 }

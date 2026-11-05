@@ -1,4 +1,4 @@
-import { DEFAULT_CLIENT_SETTINGS, EnvironmentId, ProjectId } from "@t3tools/contracts";
+import { DEFAULT_CLIENT_SETTINGS, EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
@@ -6,7 +6,8 @@ import { render } from "../../test/render";
 import { openCommandPalette } from "../commandPaletteBus";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { __setClientSettingsForTests, getClientSettings } from "../hooks/useSettings";
-import { useProjects } from "../state/entities";
+import { useProjects, useQuietThreadShells } from "../state/entities";
+import { makeThreadFixture } from "../test-fixtures";
 import type { Project } from "../types";
 import Sidebar from "./Sidebar";
 import { SidebarProvider } from "./ui/sidebar";
@@ -86,4 +87,88 @@ describe("sidebar header new thread", () => {
       expect(startThread).toHaveBeenCalledExactlyOnceWith(currentProjectRef);
     }
   });
+});
+
+it("keeps named groups independent of status shelves and preserves saved links", async () => {
+  using cleanup = new DisposableStack();
+  const key = "t3code:personal-sidebar:v1";
+  const previous = localStorage.getItem(key);
+  cleanup.defer(() => {
+    if (previous === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, previous);
+  });
+  localStorage.setItem(
+    key,
+    JSON.stringify({
+      version: 1,
+      view: "groups",
+      modelIcons: "both",
+      deviceIcons: {},
+      ungroupedCollapsed: false,
+      groups: [
+        {
+          id: "planning",
+          name: "Scheduling",
+          collapsed: false,
+          members: [
+            { key: "local:das", title: "DAS schedule" },
+            { key: "offline:long-lived", title: "Remote planning" },
+          ],
+        },
+      ],
+    }),
+  );
+  const projects = [project("active")];
+  vi.mocked(useProjects).mockReturnValue(projects);
+  vi.mocked(useQuietThreadShells).mockReturnValue([
+    makeThreadFixture({
+      id: ThreadId.make("das"),
+      environmentId: EnvironmentId.make("local"),
+      projectId: projects[0]!.id,
+      title: "DAS schedule",
+    }),
+    makeThreadFixture({
+      id: ThreadId.make("other"),
+      environmentId: EnvironmentId.make("local"),
+      projectId: projects[0]!.id,
+      title: "Unsorted task",
+    }),
+  ]);
+  cleanup.defer(() => vi.mocked(useQuietThreadShells).mockRestore());
+  vi.mocked(useHandleNewThread).mockReturnValue({
+    activeDraftThread: null,
+    activeThread: null,
+    defaultProjectRef: null,
+    handleNewThread: vi.fn(),
+    routeDraftId: null,
+    routeThreadRef: null,
+  });
+  await using screen = await render(
+    <SidebarProvider>
+      <Sidebar routeReveal={{ observedKey: null, pendingKey: null }} />
+    </SidebarProvider>,
+  );
+  await expect
+    .element(screen.getByRole("button", { name: "DAS schedule, active", exact: true }))
+    .toBeVisible();
+  await expect.element(screen.getByText("Remote planning", { exact: true })).toBeVisible();
+  const group = screen.getByRole("button", { name: /Scheduling/ });
+  await userEvent.click(group);
+  await expect.element(group).toHaveAttribute("aria-expanded", "false");
+  await expect
+    .element(screen.getByRole("button", { name: "DAS schedule, active", exact: true }))
+    .not.toBeInTheDocument();
+  await expect
+    .element(screen.getByRole("button", { name: "Unsorted task, active", exact: true }))
+    .toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Status", exact: true }));
+  await expect
+    .element(screen.getByRole("button", { name: "DAS schedule, active", exact: true }))
+    .toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Groups", exact: true }));
+  await expect
+    .element(screen.getByRole("button", { name: /Scheduling/ }))
+    .toHaveAttribute("aria-expanded", "false");
+  await userEvent.click(screen.getByRole("button", { name: /Scheduling/ }));
+  await expect.element(screen.getByText("Remote planning", { exact: true })).toBeVisible();
 });

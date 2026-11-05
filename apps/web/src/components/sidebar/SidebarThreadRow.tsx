@@ -1,3 +1,4 @@
+import { SidebarModelIcon } from "./SidebarModelIcon";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { ThreadTerminalStatusButton } from "../ThreadStatusIndicators";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
@@ -191,7 +192,7 @@ function SidebarProviderStack(props: {
     currentEntry,
     props.providerEntryByInstanceId.values(),
   );
-  const current = (
+  const harness = (
     <ProviderInstanceIcon
       driverKind={currentEntry.driverKind}
       displayName={currentEntry.displayName}
@@ -203,6 +204,7 @@ function SidebarProviderStack(props: {
       iconClassName="opacity-60"
     />
   );
+  const current = <SidebarModelIcon model={props.thread.modelSelection.model} harness={harness} />;
   if (stack.length === 1) {
     return <span className="inline-flex shrink-0 items-center">{current}</span>;
   }
@@ -285,6 +287,7 @@ function SidebarThreadTooltip({
         {environmentLabel ? (
           <div className="flex min-w-0 items-center gap-2">
             <EnvironmentMachineIcon
+              environmentId={thread.environmentId}
               kind={environmentMachine}
               className="size-3 shrink-0 stroke-muted-foreground"
             />
@@ -1132,7 +1135,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const remoteMachineIcon =
     isRemote && !showsScratchMachine ? (
       <span className="inline-flex shrink-0 items-center text-sidebar-muted-foreground/70">
-        <EnvironmentMachineIcon aria-hidden kind={props.environmentMachine} className="size-3.5" />
+        <EnvironmentMachineIcon
+          environmentId={thread.environmentId}
+          aria-hidden
+          kind={props.environmentMachine}
+          className="size-3.5"
+        />
       </span>
     ) : null;
   const diff = latestRunDiff(thread);
@@ -1155,6 +1163,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       ) : showsScratchMachine ? (
         <>
           <EnvironmentMachineIcon
+            environmentId={thread.environmentId}
             aria-hidden
             kind={props.environmentMachine}
             className="size-3 shrink-0"

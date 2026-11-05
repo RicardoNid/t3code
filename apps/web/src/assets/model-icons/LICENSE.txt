@@ -1,0 +1,4 @@
+DeepSeek, Google Gemini and Qwen SVG icons from Simple Icons:
+https://github.com/simple-icons/simple-icons/tree/develop/icons
+Distributed under CC0-1.0: https://creativecommons.org/publicdomain/zero/1.0/
+Brand names and marks belong to their respective owners.

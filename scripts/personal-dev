@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$root"
+export VP_HOME="$root/.tooling/vite-plus"
+if [[ ! -x "$VP_HOME/bin/vp" ]]; then
+  echo 'Install the isolated Vite+ toolchain first; see docs/operations/personal-desktop.md.' >&2
+  exit 1
+fi
+export PATH="$VP_HOME/bin:$PATH"
+node_version="$(node -p 'require("./package.json").engines.node')"
+if [[ ! -x "$VP_HOME/js_runtime/node/$node_version/bin/node" ]]; then
+  if command -v get-dep >/dev/null; then
+    get-dep vp env install "$node_version"
+  else
+    vp env install "$node_version"
+  fi
+fi
+export PATH="$VP_HOME/js_runtime/node/$node_version/bin:$PATH"
+if [[ "$(uname -s)" == Linux && -z "${CC:-}" && -x /usr/bin/cc ]]; then
+  export CC=/usr/bin/cc
+  mkdir -p "$root/.tooling/bin"
+  ln -sfn /usr/bin/cc "$root/.tooling/bin/cc"
+  export PATH="$root/.tooling/bin:$PATH"
+fi
+action="${1:-dev}"
+if (( $# )); then shift; fi
+case "$action" in
+  install)
+    command=(vp install --frozen-lockfile --filter @t3tools/monorepo --filter '@t3tools/web...' --filter 't3...' --filter '@t3tools/desktop...' --filter './oxlint-plugin-t3code...' --filter './scripts...')
+    if command -v get-dep >/dev/null; then exec get-dep "${command[@]}" "$@"; fi
+    exec "${command[@]}" "$@"
+    ;;
+  dev) exec vp run dev --home-dir "$root/.t3-personal" "$@" ;;
+  desktop) exec vp run dev:desktop --home-dir "$root/.t3-personal" "$@" ;;
+  build) exec vp run build:desktop "$@" ;;
+  test) cd apps/web; exec vp test run "$@" ;;
+  *) exec vp "$action" "$@" ;;
+esac
