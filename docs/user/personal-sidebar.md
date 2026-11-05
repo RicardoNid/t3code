@@ -10,7 +10,7 @@ it back to Ungrouped. Removing a group keeps its threads.
 Each group folds independently. Folding never pauses, snoozes or settles a thread.
 Running and settled threads keep their group membership. The open thread remains
 visible inside a folded group; group headers show attention, failure, unread or
-working indicators. Project filters still apply. Threads that have not loaded
+working indicators. The number counts completed threads you have not viewed, not all threads in the group; it disappears when none remain unread. Project filters still apply. Threads that have not loaded
 remain as saved links when showing all projects; open one to load it or reconnect.
 Right-click a saved link to move or remove it from a group.
 

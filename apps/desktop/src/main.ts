@@ -1,3 +1,4 @@
+import { remoteArchiveVersion } from "./ssh/remoteArchiveVersion.ts";
 import * as MacPermissions from "./permissions/MacPermissions.ts";
 for (const stream of [process.stdout, process.stderr]) {
   stream.on("error", (err: NodeJS.ErrnoException) => {
@@ -116,7 +117,7 @@ const resolveDesktopSshCliRunner = (
       nodeEngineRange: serverPackageJson.engines.node,
     };
   }
-  return { archiveVersion: environment.appVersion };
+  return { archiveVersion: remoteArchiveVersion(environment.appVersion) };
 };
 
 const layerDesktopSshEnvironment = Layer.unwrap(

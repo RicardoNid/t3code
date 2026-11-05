@@ -1351,3 +1351,11 @@ export function sortScopedProjectsForSidebar<
       left.id.localeCompare(right.id),
   );
 }
+
+export function countSidebarUnreadCompletions(
+  threads: ReadonlyArray<ThreadStatusInput & SidebarThreadStatusInput>,
+): number {
+  return threads.filter(
+    (thread) => resolveSidebarThreadStatus(thread) === "ready" && hasUnseenCompletion(thread),
+  ).length;
+}

@@ -3485,7 +3485,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               key={`group:${group.id}`}
                               id={group.id}
                               name={group.name}
-                              count={group.members.length}
                               collapsed={group.collapsed}
                               threads={group.members.flatMap((member) => {
                                 const thread = threadByKey.get(member.key);

@@ -33,6 +33,7 @@ import {
   resolveSidebarDropVerb,
   groupSidebarThreadsByProject,
   resolveSidebarFolderDot,
+  countSidebarUnreadCompletions,
   sidebarFolderExpansionKeys,
 } from "./Sidebar.logic";
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
@@ -1616,6 +1617,17 @@ describe("resolveSidebarFolderDot", () => {
     ).toBeNull();
     expect(resolveSidebarFolderDot([idle, working])).toBe("working");
     expect(resolveSidebarFolderDot([working, unread])).toBe("unread");
+    expect(countSidebarUnreadCompletions([idle, working, unread])).toBe(1);
+    expect(
+      countSidebarUnreadCompletions([
+        idle,
+        working,
+        {
+          ...unread,
+          lastVisitedAt: "2026-03-09T10:06:00.000Z",
+        },
+      ]),
+    ).toBe(0);
     expect(resolveSidebarFolderDot([unread, limited])).toBe("attention");
   });
 });

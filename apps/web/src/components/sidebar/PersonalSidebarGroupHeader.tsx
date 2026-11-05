@@ -1,18 +1,32 @@
 import { ChevronDownIcon, FolderIcon } from "lucide-react";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
-import { resolveSidebarFolderDot } from "../Sidebar.logic";
+import {
+  countSidebarUnreadCompletions,
+  resolveSidebarFolderDot,
+  resolveThreadLastVisitedAt,
+} from "../Sidebar.logic";
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { useUiStateStore } from "../../uiStateStore";
 import { cn } from "../../lib/utils";
 
 const labels = { attention: "needs you", failed: "failed", unread: "unread", working: "working" };
 export function PersonalSidebarGroupHeader(props: {
   id: string;
   name: string;
-  count: number;
   collapsed: boolean;
   threads: readonly EnvironmentThreadShell[];
   onToggle: () => void;
 }) {
-  const status = resolveSidebarFolderDot(props.threads);
+  const localVisits = useUiStateStore((state) => state.threadLastVisitedAtById);
+  const threads = props.threads.map((thread) => ({
+    ...thread,
+    lastVisitedAt: resolveThreadLastVisitedAt(
+      thread.lastVisitedAt,
+      localVisits[scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))],
+    ),
+  }));
+  const status = resolveSidebarFolderDot(threads);
+  const unreadCount = countSidebarUnreadCompletions(threads);
   return (
     <li className="mt-2 list-none">
       <button
@@ -38,7 +52,14 @@ export function PersonalSidebarGroupHeader(props: {
             {labels[status]}
           </span>
         ) : null}
-        <span className="text-xs tabular-nums text-muted-foreground">{props.count}</span>
+        {unreadCount > 0 ? (
+          <span
+            aria-label={`${unreadCount} unread completions`}
+            className="text-xs tabular-nums text-muted-foreground"
+          >
+            {unreadCount}
+          </span>
+        ) : null}
         <ChevronDownIcon className={cn("size-3", props.collapsed && "-rotate-90")} aria-hidden />
       </button>
     </li>

@@ -1,4 +1,10 @@
-import { DEFAULT_CLIENT_SETTINGS, EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
+import {
+  DEFAULT_CLIENT_SETTINGS,
+  EnvironmentId,
+  ProjectId,
+  RunId,
+  ThreadId,
+} from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
@@ -10,6 +16,8 @@ import { useProjects, useQuietThreadShells } from "../state/entities";
 import { makeThreadFixture } from "../test-fixtures";
 import type { Project } from "../types";
 import Sidebar from "./Sidebar";
+import { PersonalSidebarGroupHeader } from "./sidebar/PersonalSidebarGroupHeader";
+import { useUiStateStore } from "../uiStateStore";
 import { SidebarProvider } from "./ui/sidebar";
 
 vi.mock("../state/entities", { spy: true });
@@ -171,4 +179,42 @@ it("keeps named groups independent of status shelves and preserves saved links",
     .toHaveAttribute("aria-expanded", "false");
   await userEvent.click(screen.getByRole("button", { name: /Scheduling/ }));
   await expect.element(screen.getByText("Remote planning", { exact: true })).toBeVisible();
+});
+
+it("clears a group's completion badge when a legacy local visit advances", async () => {
+  using cleanup = new DisposableStack();
+  const previous = useUiStateStore.getState().threadLastVisitedAtById;
+  cleanup.defer(() => useUiStateStore.setState({ threadLastVisitedAtById: previous }));
+  useUiStateStore.setState({
+    threadLastVisitedAtById: { "local:done": "2026-01-01T10:00:00.000Z" },
+  });
+  const { lastVisitedAt: _lastVisitedAt, ...done } = makeThreadFixture({
+    id: ThreadId.make("done"),
+    runtime: null,
+    environmentId: EnvironmentId.make("local"),
+    latestRun: {
+      runId: RunId.make("run-done"),
+      status: "completed",
+      assistantMessageId: null,
+      requestedAt: "2026-01-01T10:00:00.000Z",
+      startedAt: "2026-01-01T10:00:00.000Z",
+      completedAt: "2026-01-01T10:01:00.000Z",
+    },
+  });
+  await using screen = await render(
+    <ul>
+      <PersonalSidebarGroupHeader
+        id="planning"
+        name="Planning"
+        collapsed
+        threads={[done]}
+        onToggle={() => {}}
+      />
+    </ul>,
+  );
+  await expect.element(screen.getByLabelText("1 unread completions")).toBeVisible();
+  await expect.element(screen.getByText("unread", { exact: true })).toBeVisible();
+  useUiStateStore.getState().markThreadVisited("local:done", "2026-01-01T10:02:00.000Z");
+  await expect.element(screen.getByLabelText("1 unread completions")).not.toBeInTheDocument();
+  await expect.element(screen.getByText("unread", { exact: true })).not.toBeInTheDocument();
 });
