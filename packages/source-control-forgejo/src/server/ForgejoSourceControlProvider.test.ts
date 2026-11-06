@@ -1,6 +1,10 @@
 import { SourceControlProviderKind } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Deferred from "effect/Deferred";
+import * as Fiber from "effect/Fiber";
+import * as Result from "effect/Result";
+import * as TestClock from "effect/testing/TestClock";
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -1875,4 +1879,267 @@ it.effect(
         );
       }
     }),
+);
+
+const branchPull = (number: number, branch: string, state = "open") => ({
+  ...requiredChecksPullRequest,
+  number,
+  state,
+  head: {
+    ref: branch,
+    sha: `head-${number}`,
+    repo: { full_name: "acme/web", owner: { login: "acme" } },
+  },
+});
+
+const branchLookupLayer = (
+  api: ForgejoCli.ForgejoCli["Service"]["api"],
+  resolveRepository: ForgejoCli.ForgejoCli["Service"]["resolveRepository"] = () =>
+    Effect.succeed({ login: "test", repository: "acme/web", baseUrl: "https://forgejo.test" }),
+) =>
+  Layer.mergeAll(
+    Layer.mock(ForgejoCli.ForgejoCli)({ resolveRepository, api }),
+    Layer.succeed(FileSystem.FileSystem, FileSystem.makeNoop({})),
+    TestSourceControlHost.layer({}),
+  );
+
+it.effect("status probes ask for one PR and prefer an open PR without scanning history", () => {
+  const paths: string[] = [];
+  return Effect.gen(function* () {
+    const provider = yield* ForgejoSourceControlProvider.make;
+    const probe = provider.headBranchProbe?.({
+      headSelectors: ["acme:feature", "feature"],
+      state: "all",
+    });
+    assert.deepStrictEqual(probe, { headSelectors: ["acme:feature", "feature"], limit: 1 });
+    const prs = yield* provider.listChangeRequests({
+      cwd: "/repo",
+      headSelector: "acme:feature",
+      state: "all",
+      limit: 1,
+    });
+    assert.deepStrictEqual(
+      prs.map((pr) => pr.number),
+      [7],
+    );
+    assert.strictEqual(paths.length, 1);
+    assert.strictEqual(new URLSearchParams(paths[0]!.split("?")[1]).get("state"), "open");
+  }).pipe(
+    Effect.provide(
+      branchLookupLayer((input) => {
+        paths.push(input.path);
+        const params = new URLSearchParams(input.path.split("?")[1]);
+        assert.isFalse(params.has("head"));
+        return Effect.succeed(processOutput(encodeJson([branchPull(7, "feature")])));
+      }),
+    ),
+  );
+});
+
+it.effect(
+  "shares repository pages across concurrent branches and stops at the final Link header",
+  () => {
+    const paths: string[] = [];
+    return Effect.gen(function* () {
+      const provider = yield* ForgejoSourceControlProvider.make;
+      const lists = yield* Effect.forEach(
+        ["feature", "other"],
+        (headSelector) =>
+          provider.listChangeRequests({
+            cwd: `/worktrees/${headSelector}`,
+            headSelector,
+            state: "open",
+            limit: 20,
+          }),
+        { concurrency: 2 },
+      );
+      assert.deepStrictEqual(
+        lists.map((prs) => prs.map((pr) => pr.number)),
+        [[7], [8]],
+      );
+      assert.strictEqual(paths.length, 1);
+    }).pipe(
+      Effect.provide(
+        branchLookupLayer((input) => {
+          paths.push(input.path);
+          return Effect.succeed(
+            processOutput(
+              encodeJson(
+                new URLSearchParams(input.path.split("?")[1]).get("page") === "1"
+                  ? [branchPull(7, "feature"), branchPull(8, "other")]
+                  : [],
+              ),
+              {
+                stderr:
+                  'Link: <https://forgejo.test/api/v1/repos/acme/web/pulls?page=1>; rel="last"\r\n',
+              },
+            ),
+          );
+        }),
+      ),
+    );
+  },
+);
+
+it.effect("finds older closed PRs through short pages and disambiguates fork owners", () => {
+  const paths: string[] = [];
+  return Effect.gen(function* () {
+    const provider = yield* ForgejoSourceControlProvider.make;
+    const prs = yield* provider.listChangeRequests({
+      cwd: "/repo",
+      headSelector: "acme:feature",
+      state: "all",
+      limit: 1,
+    });
+    assert.deepStrictEqual(
+      prs.map((pr) => pr.number),
+      [9],
+    );
+    assert.strictEqual(paths.length, 3);
+  }).pipe(
+    Effect.provide(
+      branchLookupLayer((input) => {
+        paths.push(input.path);
+        const params = new URLSearchParams(input.path.split("?")[1]);
+        const foreign = {
+          ...branchPull(8, "feature"),
+          head: {
+            ...branchPull(8, "feature").head,
+            repo: { full_name: "fork/web", owner: { login: "fork" } },
+          },
+        };
+        const items =
+          params.get("state") === "open"
+            ? [foreign]
+            : params.get("page") === "1"
+              ? [branchPull(7, "unrelated", "closed")]
+              : [
+                  {
+                    ...branchPull(9, "feature", "closed"),
+                    head: {
+                      ...branchPull(9, "feature").head,
+                      ref: "refs/pull/9/head",
+                      label: "feature",
+                    },
+                  },
+                ];
+        return Effect.succeed(
+          processOutput(encodeJson(items), {
+            stderr:
+              params.get("state") === "closed" && params.get("page") === "1"
+                ? 'Link: <https://forgejo.test/next>; rel="next"'
+                : 'Link: <https://forgejo.test/last>; rel="last"',
+          }),
+        );
+      }),
+    ),
+  );
+});
+
+it.effect("expires successful pages and retries failures instead of caching empty results", () => {
+  let attempts = 0;
+  return Effect.gen(function* () {
+    const provider = yield* ForgejoSourceControlProvider.make;
+    const input = { cwd: "/repo", headSelector: "feature", state: "open" as const, limit: 1 };
+    assert.isTrue(Result.isFailure(yield* Effect.result(provider.listChangeRequests(input))));
+    assert.strictEqual((yield* provider.listChangeRequests(input))[0]?.number, 7);
+    yield* provider.listChangeRequests(input);
+    assert.strictEqual(attempts, 2);
+    yield* TestClock.adjust("61 seconds");
+    yield* provider.listChangeRequests(input);
+    assert.strictEqual(attempts, 3);
+  }).pipe(
+    Effect.provide(
+      branchLookupLayer((input) => {
+        attempts++;
+        return attempts === 1
+          ? Effect.fail(
+              new ForgejoCli.ForgejoCliError({
+                cwd: input.cwd,
+                command: "tea",
+                detail: "Unavailable",
+              }),
+            )
+          : Effect.succeed(processOutput(encodeJson([branchPull(7, "feature")])));
+      }),
+    ),
+  );
+});
+
+it.effect("bounds a stalled lookup and propagates failure instead of reporting no PR", () =>
+  Effect.gen(function* () {
+    const started = yield* Deferred.make<void>();
+    const stopped = yield* Deferred.make<void>();
+    const provider = yield* ForgejoSourceControlProvider.make.pipe(
+      Effect.provide(
+        branchLookupLayer(() =>
+          Deferred.succeed(started, undefined).pipe(
+            Effect.andThen(Effect.never),
+            Effect.ensuring(Deferred.succeed(stopped, undefined)),
+          ),
+        ),
+      ),
+    );
+    const lookup = yield* Effect.forkChild(
+      Effect.result(
+        provider.listChangeRequests({
+          cwd: "/repo",
+          headSelector: "feature",
+          state: "all",
+          limit: 1,
+        }),
+      ),
+    );
+    yield* Deferred.await(started);
+    yield* TestClock.adjust("15 seconds");
+    const result = yield* Fiber.join(lookup);
+    assert.isTrue(Result.isFailure(result));
+    if (Result.isFailure(result))
+      assert.strictEqual(result.failure.operation, "listChangeRequests");
+    yield* Deferred.await(stopped);
+  }),
+);
+
+it.effect(
+  "does not share cached pages between servers, accounts, repositories or CLI backends",
+  () => {
+    const initial = {
+      login: "test",
+      repository: "acme/web",
+      baseUrl: "https://forgejo.test",
+      command: "tea" as const,
+    };
+    let target: ForgejoCli.ForgejoRepository = initial;
+    let requests = 0;
+    return Effect.gen(function* () {
+      const provider = yield* ForgejoSourceControlProvider.make;
+      for (const changed of [
+        initial,
+        { ...initial, login: "other" },
+        { ...initial, baseUrl: "https://other.test" },
+        { ...initial, repository: "other/web" },
+        { ...initial, command: "fj" as const },
+      ]) {
+        target = changed;
+        const prs = yield* provider.listChangeRequests({
+          cwd: "/repo",
+          headSelector: "feature",
+          state: "open",
+          limit: 1,
+        });
+        assert.strictEqual(prs[0]?.number, requests);
+      }
+      assert.strictEqual(requests, 5);
+    }).pipe(
+      Effect.provide(
+        branchLookupLayer(
+          () => {
+            requests++;
+            return Effect.succeed(processOutput(encodeJson([branchPull(requests, "feature")])));
+          },
+          () => Effect.succeed(target),
+        ),
+      ),
+    );
+  },
 );

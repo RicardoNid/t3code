@@ -1,5 +1,10 @@
 import { SourceControlProviderKind } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Cache from "effect/Cache";
+import * as Duration from "effect/Duration";
+import * as Equal from "effect/Equal";
+import * as Exit from "effect/Exit";
+import * as Hash from "effect/Hash";
 import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
 import * as Result from "effect/Result";
@@ -16,6 +21,10 @@ import {
   type SourceControlManagedCliDiscoverySpec,
 } from "@t3tools/source-control-core/server/discovery";
 import { ForgejoPullRequestSchema, toForgejoChangeRequest } from "./forgejoPullRequests.ts";
+
+const decodePullPage = Schema.decodeEffect(
+  Schema.fromJsonString(Schema.Array(ForgejoPullRequestSchema)),
+);
 
 const isForgejoCliError = Schema.is(ForgejoCli.ForgejoCliError);
 
@@ -268,6 +277,27 @@ const cloneUrls = (raw: typeof RepositorySchema.Type) => ({
 const repositoryPath = (repository: string) =>
   `repos/${repository.split("/").map(encodeURIComponent).join("/")}`;
 
+type PullPage = {
+  readonly items: ReadonlyArray<typeof ForgejoPullRequestSchema.Type>;
+  readonly more: boolean;
+};
+
+// Pages are shared across worktrees, but never across servers, accounts, or CLI backends.
+class RepositoryPullPage {
+  readonly key: string;
+  readonly lookup: Effect.Effect<PullPage, ForgejoCli.ForgejoCliError>;
+  constructor(key: string, lookup: Effect.Effect<PullPage, ForgejoCli.ForgejoCliError>) {
+    this.key = key;
+    this.lookup = lookup;
+  }
+  [Equal.symbol](that: unknown): boolean {
+    return that instanceof RepositoryPullPage && that.key === this.key;
+  }
+  [Hash.symbol](): number {
+    return Hash.string(this.key);
+  }
+}
+
 export const make = Effect.gen(function* () {
   const cli = yield* ForgejoCli.ForgejoCli;
   const fs = yield* FileSystem.FileSystem;
@@ -292,6 +322,39 @@ export const make = Effect.gen(function* () {
         ),
       ),
     );
+  const pullPages = yield* Cache.makeWith((page: RepositoryPullPage) => page.lookup, {
+    capacity: 512,
+    timeToLive: (exit) => (Exit.isSuccess(exit) ? Duration.seconds(60) : Duration.zero),
+  });
+  const readPullPage = Effect.fn("ForgejoSourceControlProvider.readPullPage")(function* (
+    input: ForgejoCli.ForgejoApiInput,
+  ) {
+    const result = yield* cli.api(input);
+    if (result.stdoutTruncated)
+      return yield* new ForgejoCli.ForgejoCliError({
+        command: "tea",
+        cwd: input.cwd,
+        reason: "invalid-response",
+        detail: "Forgejo response exceeded the output limit.",
+      });
+    const items = yield* decodePullPage(result.stdout).pipe(
+      Effect.mapError(
+        (cause) =>
+          new ForgejoCli.ForgejoCliError({
+            command: "tea",
+            cwd: input.cwd,
+            reason: "invalid-response",
+            detail: "Forgejo API returned an invalid response.",
+            cause,
+          }),
+      ),
+    );
+    const links = /^link:\s*(.*)$/im.exec(result.stderr)?.[1];
+    return {
+      items,
+      more: items.length > 0 && (links === undefined || /rel="?next"?/i.test(links)),
+    };
+  });
   const mapError = (operation: string, cwd: string) =>
     Effect.mapError(
       (cause: unknown) =>
@@ -327,6 +390,7 @@ export const make = Effect.gen(function* () {
     repositoryNameFromRemoteUrl,
     refineRepositoryIdentity,
     resolveRemoteWebHost,
+    headBranchProbe: ({ headSelectors }) => ({ headSelectors, limit: 1 }),
     listChangeRequests: Effect.fn("ForgejoSourceControlProvider.listChangeRequests")(
       function* (input) {
         const repo = yield* cli.resolveRepository(input);
@@ -334,29 +398,48 @@ export const make = Effect.gen(function* () {
         const branch = SourceControlProvider.sourceBranch(input);
         const results: ReturnType<typeof toForgejoChangeRequest>[] = [];
         const limit = input.limit ?? 20;
-        for (let page = 1; results.length < limit; page++) {
-          const items = yield* request(
-            {
-              ...input,
-              path: `${repositoryPath(repo.repository)}/pulls?state=${input.state === "merged" ? "closed" : input.state}&head=${encodeURIComponent(branch)}&sort=recentupdate&limit=50&page=${page}`,
-            },
-            Schema.Array(ForgejoPullRequestSchema),
-          );
-          for (const item of items) {
-            if (
-              item.head.ref !== branch ||
-              (source?.repository && item.head.repo?.full_name !== source.repository) ||
-              (source?.owner && item.head.repo?.owner.login !== source.owner)
-            )
-              continue;
-            const normalized = toForgejoChangeRequest(item);
-            if (input.state === "all" || normalized.state === input.state) results.push(normalized);
+        const states =
+          input.state === "all" && limit === 1
+            ? ["open", "closed"]
+            : [input.state === "merged" ? "closed" : input.state];
+        for (const state of states) {
+          for (let page = 1; results.length < limit; page++) {
+            const path = `${repositoryPath(repo.repository)}/pulls?state=${state}&sort=recentupdate&limit=50&page=${page}`;
+            const { items, more } = yield* Cache.get(
+              pullPages,
+              new RepositoryPullPage(
+                [
+                  repo.baseUrl,
+                  repo.login,
+                  repo.command ?? "tea",
+                  repo.repository,
+                  state,
+                  String(page),
+                ]
+                  .map(encodeURIComponent)
+                  .join("\n"),
+                readPullPage({ ...input, path }),
+              ),
+            );
+            for (const item of items) {
+              const normalized = toForgejoChangeRequest(item);
+              if (
+                normalized.headRefName !== branch ||
+                (source?.repository && item.head.repo?.full_name !== source.repository) ||
+                (source?.owner && item.head.repo?.owner.login !== source.owner)
+              )
+                continue;
+              if (input.state === "all" || normalized.state === input.state)
+                results.push(normalized);
+            }
+            if (!more) break;
           }
-          if (items.length === 0) break;
+          if (results.length >= limit) break;
         }
         return results.slice(0, limit);
       },
-      (effect, input) => effect.pipe(mapError("listChangeRequests", input.cwd)),
+      (effect, input) =>
+        effect.pipe(Effect.timeout("15 seconds"), mapError("listChangeRequests", input.cwd)),
     ),
     getChangeRequest: Effect.fn("ForgejoSourceControlProvider.getChangeRequest")(function (input) {
       return getPull(input).pipe(
@@ -382,7 +465,11 @@ export const make = Effect.gen(function* () {
           },
         });
       },
-      (effect, input) => effect.pipe(mapError("createChangeRequest", input.cwd)),
+      (effect, input) =>
+        effect.pipe(
+          Effect.tap(() => Cache.invalidateAll(pullPages)),
+          mapError("createChangeRequest", input.cwd),
+        ),
     ),
     getRepositoryCloneUrls: Effect.fn("ForgejoSourceControlProvider.getRepositoryCloneUrls")(
       function* (input) {

@@ -9,6 +9,7 @@ const Repository = Schema.Struct({
 });
 const Branch = Schema.Struct({
   ref: Schema.String,
+  label: Schema.optional(Schema.String),
   sha: Schema.String,
   repo: Schema.NullOr(Repository),
 });
@@ -34,7 +35,11 @@ export function toForgejoChangeRequest(raw: typeof ForgejoPullRequestSchema.Type
     state: raw.merged ? "merged" : raw.state === "closed" ? "closed" : "open",
     isDraft: raw.draft ?? /^(?:\[WIP\]|WIP:)/i.test(raw.title),
     baseRefName: raw.base.ref,
-    headRefName: raw.head.ref,
+    // Deleted Forgejo branches retain their original name only in the label.
+    headRefName:
+      /^refs\/pull\/\d+\/head$/.test(raw.head.ref) && raw.head.label?.trim()
+        ? raw.head.label.trim()
+        : raw.head.ref,
     ...(raw.head.sha.trim().length > 0 ? { headSha: raw.head.sha.trim() } : {}),
     closedAt: raw.closed_at ?? null,
     mergedAt: raw.merged_at ?? null,

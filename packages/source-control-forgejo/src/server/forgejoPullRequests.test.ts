@@ -44,3 +44,24 @@ it.effect("names a mounted server's heads by owner and repository, apart from fo
     );
   }),
 );
+
+it.effect.each([
+  ["refs/pull/42/head", "feature/original", "feature/original"],
+  ["refs/pull/42/head", undefined, "refs/pull/42/head"],
+  ["feature/live", "other", "feature/live"],
+] as const)("recovers a deleted source branch from %s with label %s", ([ref, label, expected]) =>
+  Effect.gen(function* () {
+    const pr = toForgejoChangeRequest(
+      yield* decodeForgejoPullRequest({
+        number: 42,
+        title: "Merged",
+        html_url: "https://forgejo.test/acme/web/pulls/42",
+        state: "closed",
+        merged: true,
+        base: { ref: "main", sha: "base", repo: null },
+        head: { ref, ...(label === undefined ? {} : { label }), sha: "head", repo: null },
+      }),
+    );
+    expect(pr.headRefName).toBe(expected);
+  }),
+);
