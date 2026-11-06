@@ -2293,6 +2293,70 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
       }),
   );
 
+  it.effect("status passes source identity before a provider limits same-name fork results", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
+      yield* configureVisibleRemoteUrlWithLocalRewrite(
+        repoDir,
+        "origin",
+        "https://forgejo.test/acme/web.git",
+        remoteDir,
+      );
+      const { service } = createFakeSourceControlProvider({
+        kind: "forgejo",
+        prListOtherwise: [
+          {
+            number: 2,
+            title: "Foreign fork",
+            url: "https://forgejo.test/acme/web/pulls/2",
+            headRefName: "main",
+            baseRefName: "main",
+            isCrossRepository: true,
+            headRepositoryNameWithOwner: "acme/other",
+            headRepositoryOwnerLogin: "acme",
+          },
+          {
+            number: 1,
+            title: "Our branch",
+            url: "https://forgejo.test/acme/web/pulls/1",
+            headRefName: "main",
+            baseRefName: "main",
+            isCrossRepository: false,
+            headRepositoryNameWithOwner: "acme/web",
+            headRepositoryOwnerLogin: "acme",
+          },
+        ],
+      });
+      const { manager } = yield* makeManager({
+        sourceControlProvider: {
+          ...service,
+          headBranchProbe: ({ headSelectors }) => ({ headSelectors, limit: 1 }),
+          listChangeRequests: (input) =>
+            service
+              .listChangeRequests(input)
+              .pipe(
+                Effect.map((prs) =>
+                  prs
+                    .filter(
+                      (pr) =>
+                        (!input.source?.repository ||
+                          pr.headRepositoryNameWithOwner === input.source.repository) &&
+                        (!input.source?.owner ||
+                          pr.headRepositoryOwnerLogin === input.source.owner),
+                    )
+                    .slice(0, input.limit),
+                ),
+              ),
+        },
+      });
+      expect((yield* manager.status({ cwd: repoDir })).pr?.number).toBe(1);
+    }),
+  );
+
   it.effect("status detects cross-repo PRs from the upstream remote URL owner", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");

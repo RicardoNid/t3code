@@ -2143,3 +2143,76 @@ it.effect(
     );
   },
 );
+
+it.effect("keeps a shared page alive when its first waiter is cancelled", () =>
+  Effect.gen(function* () {
+    const started = yield* Deferred.make<void>();
+    const release = yield* Deferred.make<void>();
+    let requests = 0;
+    let stopped = false;
+    const provider = yield* ForgejoSourceControlProvider.make.pipe(
+      Effect.provide(
+        branchLookupLayer(() =>
+          Effect.gen(function* () {
+            requests++;
+            yield* Deferred.succeed(started, undefined);
+            yield* Deferred.await(release);
+            return processOutput(encodeJson([branchPull(7, "feature")]));
+          }).pipe(
+            Effect.ensuring(
+              Effect.sync(() => {
+                stopped = true;
+              }),
+            ),
+          ),
+        ),
+      ),
+    );
+    const input = { cwd: "/repo", headSelector: "feature", state: "open" as const, limit: 1 };
+    const first = yield* Effect.forkChild(provider.listChangeRequests(input));
+    yield* Deferred.await(started);
+    yield* TestClock.adjust("1 second");
+    const second = yield* Effect.forkChild(provider.listChangeRequests(input), {
+      startImmediately: true,
+    });
+    yield* TestClock.adjust("1 second");
+    yield* Fiber.interrupt(first);
+    assert.isFalse(stopped);
+    yield* Deferred.succeed(release, undefined);
+    assert.strictEqual((yield* Fiber.join(second))[0]?.number, 7);
+    assert.strictEqual(requests, 1);
+  }),
+);
+
+it.effect("invalidates cached pull pages after creating a PR", () => {
+  let reads = 0;
+  return Effect.gen(function* () {
+    const provider = yield* ForgejoSourceControlProvider.make;
+    const input = { cwd: "/repo", headSelector: "feature", state: "open" as const, limit: 1 };
+    assert.deepStrictEqual(yield* provider.listChangeRequests(input), []);
+    yield* provider.createChangeRequest({
+      ...input,
+      baseRefName: "main",
+      title: "Feature",
+      bodyFile: "/body",
+    });
+    assert.strictEqual((yield* provider.listChangeRequests(input))[0]?.number, 7);
+    assert.strictEqual(reads, 2);
+  }).pipe(
+    Effect.provide(
+      Layer.merge(
+        branchLookupLayer((input) =>
+          Effect.sync(() => {
+            if (input.method === "POST") return processOutput("{}");
+            reads++;
+            return processOutput(encodeJson(reads === 1 ? [] : [branchPull(7, "feature")]));
+          }),
+        ),
+        Layer.succeed(
+          FileSystem.FileSystem,
+          FileSystem.makeNoop({ readFileString: () => Effect.succeed("") }),
+        ),
+      ),
+    ),
+  );
+});

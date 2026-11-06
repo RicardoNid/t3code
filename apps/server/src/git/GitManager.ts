@@ -1872,6 +1872,15 @@ export const make = Effect.gen(function* () {
       const pullRequests = yield* provider.listChangeRequests({
         cwd,
         headSelector,
+        source: {
+          refName: headContext.headBranch,
+          ...(headContext.headRepositoryNameWithOwner
+            ? { repository: headContext.headRepositoryNameWithOwner }
+            : {}),
+          ...(headContext.headRepositoryOwnerLogin
+            ? { owner: headContext.headRepositoryOwnerLogin }
+            : {}),
+        },
         state: "open",
         limit: probe.limit,
       });
@@ -1904,6 +1913,15 @@ export const make = Effect.gen(function* () {
       const pullRequests = yield* provider.listChangeRequests({
         cwd,
         headSelector,
+        source: {
+          refName: headContext.headBranch,
+          ...(headContext.headRepositoryNameWithOwner
+            ? { repository: headContext.headRepositoryNameWithOwner }
+            : {}),
+          ...(headContext.headRepositoryOwnerLogin
+            ? { owner: headContext.headRepositoryOwnerLogin }
+            : {}),
+        },
         state: "all",
         limit: probe.limit,
       });
