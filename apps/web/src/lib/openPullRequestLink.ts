@@ -26,6 +26,7 @@ import { readProject, readProjects, readThreadShell, useProjects } from "../stat
 import { environmentServerConfigsAtom, serverEnvironment } from "../state/server";
 import { usePrimaryEnvironmentId } from "../state/environments";
 import { reviewEnvironment } from "../state/review";
+import { linkedPullRequestDetailAtom } from "../state/pullRequests";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 
 export function usePullRequestPreviewTarget(environmentId: EnvironmentId | null, url: string) {
@@ -230,6 +231,8 @@ export function useOpenChangeRequestLink(
 }
 
 export function useOpenPrLink(threadRef?: ScopedThreadRef) {
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const readSummary = useAtomQueryRunner(linkedPullRequestDetailAtom, { reportFailure: false });
   const openChangeRequest = useOpenChangeRequestLink(threadRef);
   const openLink = useOpenLink(threadRef);
   return (event: MouseEvent<HTMLElement>, prUrl: string, targetThreadRef?: ScopedThreadRef) => {
@@ -238,13 +241,46 @@ export function useOpenPrLink(threadRef?: ScopedThreadRef) {
     const openInBrowser = shouldOpenPullRequestExternally(event);
     const isAnchor =
       event.currentTarget instanceof HTMLAnchorElement && event.currentTarget.href.length > 0;
-    // Native links handle modified clicks; buttons still need openExternal.
-    if (openInBrowser && isAnchor) return false;
+    // Web links retain native popup activation; Electron can resolve the browser URL before opening it.
+    if (openInBrowser && isAnchor && window.desktopBridge === undefined) return false;
 
     event.preventDefault();
     if (!openInBrowser && openChangeRequest(event, prUrl, targetThreadRef)) return true;
 
-    void openLink(prUrl, { event, threadRef: targetThreadRef }).catch((error: unknown) => {
+    const openExternal = async () => {
+      let browserUrl = prUrl;
+      if (window.desktopBridge !== undefined) {
+        const configs = appAtomRegistry.get(environmentServerConfigsAtom);
+        const target = resolveChangeRequestLinkTarget({
+          url: prUrl,
+          projects: readProjects(),
+          configLoaded: (environmentId) => configs.has(environmentId),
+          environmentId: (targetThreadRef ?? threadRef)?.environmentId,
+          primaryEnvironmentId,
+          lendHostProject: true,
+        });
+        if (target) {
+          const result = await readSummary({
+            environmentId: target.project.environmentId,
+            input: {
+              projectId: target.project.id,
+              repository: target.repository,
+              number: target.number,
+              ...(target.host === undefined ? {} : { host: target.host }),
+            },
+          });
+          if (result._tag === "Success") {
+            const canonical = new URL(result.value.url);
+            const original = new URL(prUrl);
+            canonical.hash = original.hash;
+            canonical.search = original.search;
+            browserUrl = canonical.toString();
+          }
+        }
+      }
+      await openLink(browserUrl, { event, threadRef: targetThreadRef });
+    };
+    void openExternal().catch((error: unknown) => {
       console.error(error);
       toastManager.add(
         stackedThreadToast({

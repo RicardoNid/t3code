@@ -15,7 +15,7 @@ vi.mock(import("../state/environments"), async (original) => ({
 }));
 vi.mock("../state/entities", async (original) => ({
   ...(await original<typeof import("../state/entities")>()),
-  readProjects: () => [project],
+  readProjects: () => [project, forgejoProject],
   useProjects: () => [project],
   readProject: () => project,
   readThreadShell: () => ({ projectId: "project", worktreePath: null }),
@@ -34,7 +34,7 @@ import { ToastProvider } from "../components/ui/toast";
 import { AppAtomRegistryProvider } from "../rpc/atomRegistry";
 import { useRightPanelStore } from "../rightPanelStore";
 import { useDiffPanelStore } from "../diffPanelStore";
-import { useOpenChangeRequestLink } from "./openPullRequestLink";
+import { useOpenPrLink, useOpenChangeRequestLink } from "./openPullRequestLink";
 
 const environmentId = EnvironmentId.make("local");
 const threadRef = scopeThreadRef(environmentId, ThreadId.make("thread"));
@@ -53,6 +53,21 @@ const project = {
     },
   },
 };
+const forgejoProject = {
+  ...project,
+  id: "forgejo-project",
+  repositoryIdentity: {
+    provider: "forgejo",
+    canonicalKey: "192.168.0.30:3000/owner/repo",
+    displayName: "owner/repo",
+    locator: {
+      source: "git-remote",
+      remoteName: "origin",
+      remoteUrl: "http://192.168.0.30:3000/owner/repo.git",
+    },
+  },
+};
+const storedPrUrl = "http://192.168.0.30:3000/owner/repo/pulls/1#issuecomment-2";
 const commitUrl = `https://github.com/Effect-TS/effect/commit/${"a".repeat(40)}?plain=1#diff-original`;
 const pullRequestCommitUrl = `https://github.com/Effect-TS/effect/pull/1/commits/${"a".repeat(40)}`;
 
@@ -158,3 +173,48 @@ it("opens an available commit in the closed Diff pane without the pane resetting
   // ChatView resets a pane opened without an explicit request to Changes unless this is set.
   expect(useDiffPanelStore.getState().consumeKeepSelectionOnOpen(threadRef)).toBe(true);
 });
+
+function PrLink() {
+  const open = useOpenPrLink(threadRef);
+  const url = storedPrUrl;
+  return (
+    <a href={url} onClick={(event) => open(event, url)}>
+      PR
+    </a>
+  );
+}
+
+it.each(["ctrlKey", "metaKey"] as const)(
+  "opens the provider's browser URL for a desktop %s click",
+  async (modifier) => {
+    setup();
+    using _desktop = stubGlobal("desktopBridge", {});
+    const canonicalUrl = "https://chainsaw.hsk.top/owner/repo/pulls/1#issuecomment-2";
+    state.preview.mockResolvedValue(
+      AsyncResult.success({ url: "https://chainsaw.hsk.top/owner/repo/pulls/1" }),
+    );
+    await using screen = await render(
+      <AppAtomRegistryProvider>
+        <PrLink />
+      </AppAtomRegistryProvider>,
+    );
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true, [modifier]: true });
+    const prevented: boolean[] = [];
+    screen.container.addEventListener(
+      "click",
+      (nativeEvent) => {
+        prevented.push(nativeEvent.defaultPrevented);
+        nativeEvent.preventDefault();
+      },
+      { once: true },
+    );
+    await act(() =>
+      screen.getByRole("link", { name: "PR", exact: true }).element().dispatchEvent(event),
+    );
+    await vi.waitFor(() =>
+      expect(state.openLink).toHaveBeenCalledWith(canonicalUrl, expect.anything()),
+    );
+    expect(prevented).toEqual([true]);
+    expect(useRightPanelStore.getState().byThreadKey).toEqual({});
+  },
+);
