@@ -270,6 +270,7 @@ import {
   sidebarFolderRowId,
 } from "./sidebar/SidebarProjectFolderHeader";
 import {
+  SidebarGroupedDropActions,
   SidebarDragBoundary,
   SidebarSectionHeader,
   SidebarSectionPlaceholder,
@@ -1706,7 +1707,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     restrictBelowSidebarLabel(args, dragLabelOffsetRef.current);
   const dndModifiers = [
     restrictToVerticalAxis,
-    restrictBelowPins,
+    ...(personalGrouped ? [] : [restrictBelowPins]),
     restrictToFirstScrollableAncestor,
   ];
   const attachListMotionRef = (node: HTMLUListElement) => {
@@ -2068,7 +2069,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         });
   const sidebarSortingStrategy =
     personalGrouped && !isContextDrag
-      ? verticalListSortingStrategy
+      ? (args: Parameters<typeof verticalListSortingStrategy>[0]) =>
+          args.overIndex < 0 ? null : verticalListSortingStrategy(args)
       : createSidebarSortingStrategy({
           items: sidebarListItems,
           enabled: !isContextDrag && !personalGrouped,
@@ -3371,6 +3373,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       actionSweep !== null && "**:pointer-events-none",
                     )}
                   >
+                    {personalGrouped && dragState !== null && !isContextDrag ? (
+                      <SidebarGroupedDropActions />
+                    ) : null}
                     {(() => {
                       const renderThreadRow = (
                         thread: EnvironmentThreadShell,
@@ -3516,15 +3521,26 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               key="active-placeholder"
                               marker="active-placeholder"
                               label="Inbox"
-                              showHint={
-                                from !== null &&
-                                personalGroups.every((group) => group.visibleMembers.length === 0)
-                              }
+                              showHint={false}
                               isDropTarget={dragTargetSection === "active"}
                             />,
                           );
                           for (const group of personalGroups) {
                             if (group.members.length === 0) continue;
+                            if (
+                              group.id === "" &&
+                              personalGroups.some(
+                                (entry) => entry.id !== "" && entry.members.length > 0,
+                              )
+                            )
+                              items.push(
+                                <li
+                                  key="ungrouped-separator"
+                                  role="separator"
+                                  data-thread-selection-safe
+                                  className="mx-2 my-2 shrink-0 border-t border-sidebar-border"
+                                />,
+                              );
                             if (group.id !== "")
                               items.push(
                                 <PersonalSidebarGroupHeader
@@ -3613,7 +3629,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 key="pinned-header"
                                 marker="pinned-header"
                                 label="Pinned"
-                                visible={from !== null}
+                                visible={from !== null && !personalGrouped}
                                 isDropTarget={dragTargetSection === "pinned"}
                               />,
                             );
@@ -3624,7 +3640,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 key="pinned-divider"
                                 marker="pinned-divider"
                                 label="Active"
-                                visible={from !== null}
+                                visible={from !== null && !personalGrouped}
                                 isDropTarget={dragTargetSection === "active"}
                               />,
                             );
@@ -3636,6 +3652,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 marker="active-placeholder"
                                 label="Active"
                                 showHint={
+                                  !personalGrouped &&
                                   from !== null &&
                                   (activeThreads.length === 0 ||
                                     (from === "active" &&
@@ -3703,6 +3720,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 marker="settled-placeholder"
                                 label="Settled"
                                 showHint={
+                                  !personalGrouped &&
                                   from !== null &&
                                   (renderedSettledThreads.length === 0 ||
                                     (from === "settled" &&

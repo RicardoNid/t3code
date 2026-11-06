@@ -100,6 +100,32 @@ describe("sidebar collision detection", () => {
     } satisfies Parameters<CollisionDetection>[0];
   }
 
+  it("prioritizes action hit boxes over card centers without attracting nearby drops", () => {
+    const args = collisionArgs();
+    const id = "sidebar-action:pinned";
+    const rect = { top: 0, bottom: 40, left: 0, right: 80, width: 80, height: 40 };
+    args.droppableRects.set(id, rect);
+    args.droppableContainers.push({
+      id,
+      key: id,
+      disabled: false,
+      data: { current: {} },
+      node: { current: null },
+      rect: { current: rect },
+    });
+    const detector = createSidebarCollisionDetection(() => true);
+    expect(detector({ ...args, pointerCoordinates: { x: 40, y: 20 } })[0]?.id).toBe(id);
+    expect(
+      detector({ ...args, pointerCoordinates: { x: 100, y: 20 }, collisionRect: rect })[0]?.id,
+    ).not.toBe(id);
+    expect(
+      createSidebarCollisionDetection((target) => target !== id)({
+        ...args,
+        pointerCoordinates: { x: 40, y: 20 },
+      }),
+    ).toEqual([]);
+  });
+
   it.each([
     [false, sidebarMarkerId("settled-header")],
     [true, sidebarMarkerId("pinned-divider")],

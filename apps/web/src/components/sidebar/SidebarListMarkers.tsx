@@ -1,3 +1,4 @@
+import { useDroppable } from "@dnd-kit/core";
 import { CollapsibleSectionHeader } from "../ui/collapsible-section-header";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -140,5 +141,37 @@ export function SidebarSectionHeader(props: {
         {props.label}
       </CollapsibleSectionHeader>
     </SortableSidebarMarker>
+  );
+}
+
+function SidebarActionTarget({
+  section,
+  label,
+}: {
+  section: "pinned" | "active" | "settled";
+  label: string;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: `sidebar-action:${section}` });
+  return (
+    <div
+      ref={setNodeRef}
+      data-testid={`sidebar-action-${section}`}
+      className={cn(
+        "flex h-10 flex-1 items-center justify-center rounded-md border border-dashed border-sidebar-foreground/25 text-xs text-sidebar-foreground/80",
+        isOver && "border-primary/40 bg-primary/5 text-primary",
+      )}
+    >
+      {label}
+    </div>
+  );
+}
+
+export function SidebarGroupedDropActions() {
+  return (
+    <li data-thread-selection-safe className="sticky top-0 z-30 flex shrink-0 gap-1 bg-sidebar p-1">
+      <SidebarActionTarget section="pinned" label="Pin" />
+      <SidebarActionTarget section="active" label="Inbox" />
+      <SidebarActionTarget section="settled" label="Settle" />
+    </li>
   );
 }

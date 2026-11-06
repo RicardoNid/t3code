@@ -1,6 +1,12 @@
-import { closestCenter, type CollisionDetection, type Modifier } from "@dnd-kit/core";
+import {
+  pointerWithin,
+  closestCenter,
+  type CollisionDetection,
+  type Modifier,
+} from "@dnd-kit/core";
 import { verticalListSortingStrategy, type SortingStrategy } from "@dnd-kit/sortable";
 import {
+  groupedSidebarActionSection,
   resolveSidebarDropTarget,
   sidebarListItemId,
   sidebarMarkerId,
@@ -40,7 +46,19 @@ export function createSidebarCollisionDetection(
   let previousPointerY = options.activationY;
   let boundarySection: "pinned" | "active" | undefined;
   return (args) => {
-    let collisions = closestCenter(args);
+    const actionContainers = args.droppableContainers.filter(
+      (container) => groupedSidebarActionSection(String(container.id)) !== null,
+    );
+    const actionHits = pointerWithin({ ...args, droppableContainers: actionContainers });
+    let collisions =
+      actionHits.length > 0
+        ? actionHits
+        : closestCenter({
+            ...args,
+            droppableContainers: args.droppableContainers.filter(
+              (container) => groupedSidebarActionSection(String(container.id)) === null,
+            ),
+          });
     const pointer = args.pointerCoordinates;
     const items = options.items;
     const source = items?.find((item) => item.kind === "thread" && item.key === args.active.id);

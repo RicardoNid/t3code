@@ -22,6 +22,7 @@ import {
   sortInboxThreadsByReturn,
   resolveSidebarDropTarget,
   resolveGroupedSidebarDropTarget,
+  sidebarMarkerId,
   planSidebarThreadDrop,
   resolveSidebarReorderableThreadKeys,
   sortPinnedThreadsForSidebar,
@@ -1679,4 +1680,9 @@ it("keeps grouped drags within membership while preserving pin, settle and wake 
   expect(drop("s", "a")?.section).toBe("active");
   expect(drop("z", "a")?.section).toBe("active");
   expect(drop("a", "z")).toBeNull();
+  expect(drop("a", "sidebar-action:pinned")?.section).toBe("pinned");
+  expect(drop("a", sidebarMarkerId("settled-header"))?.section).toBe("settled");
+  expect(drop("p", sidebarMarkerId("pinned-divider"))?.section).toBe("active");
+  expect(drop("p", "sidebar-action:active")?.section).toBe("active");
+  expect(drop("a", "sidebar-action:settled")?.section).toBe("settled");
 });
