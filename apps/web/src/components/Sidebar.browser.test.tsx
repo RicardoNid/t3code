@@ -19,6 +19,8 @@ import type { Project } from "../types";
 import Sidebar from "./Sidebar";
 import { resolveSidebarReorderableThreadKeys } from "./Sidebar.logic";
 import { useEnvironmentScope } from "../state/session";
+import { useConnectedEnvironmentIds, useEnvironmentIdentities } from "../state/environments";
+vi.mock("../state/environments", { spy: true });
 import { THREAD_CONTEXT_DROP_EVENT } from "./chat/threadContextDrag";
 vi.mock("./Sidebar.logic", { spy: true });
 vi.mock("../state/session", { spy: true });
@@ -326,4 +328,106 @@ it("clears a group's completion badge when a legacy local visit advances", async
   useUiStateStore.getState().markThreadVisited("local:done", "2026-01-01T10:02:00.000Z");
   await expect.element(screen.getByLabelText("1 unread completions")).not.toBeInTheDocument();
   await expect.element(screen.getByText("unread", { exact: true })).not.toBeInTheDocument();
+});
+
+it("filters sessions by their host device and preserves unavailable device scope", async () => {
+  using cleanup = new DisposableStack();
+  const key = "t3code:sidebar-device-scope:v1";
+  const previous = localStorage.getItem(key);
+  localStorage.removeItem(key);
+  cleanup.defer(() => {
+    if (previous === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, previous);
+  });
+  const previousScope = useUiStateStore.getState().sidebarProjectScopeKeys;
+  useUiStateStore.getState().setSidebarProjectScopeKeys([]);
+  cleanup.defer(() => useUiStateStore.getState().setSidebarProjectScopeKeys(previousScope));
+  const local = EnvironmentId.make("local");
+  const remote = EnvironmentId.make("macbook");
+  vi.mocked(useEnvironmentIdentities).mockReturnValue([
+    { environmentId: local, label: "LTR-DEV" },
+    { environmentId: remote, label: "MacBook" },
+  ]);
+  vi.mocked(useConnectedEnvironmentIds).mockReturnValue([local]);
+  cleanup.defer(() => {
+    vi.mocked(useEnvironmentIdentities).mockRestore();
+    vi.mocked(useConnectedEnvironmentIds).mockRestore();
+  });
+  const projects = [
+    project("local-project"),
+    { ...project("remote-project"), environmentId: remote },
+  ];
+  vi.mocked(useProjects).mockReturnValue(projects);
+  vi.mocked(useQuietThreadShells).mockReturnValue(
+    projects.map((entry, index) =>
+      makeThreadFixture({
+        environmentId: entry.environmentId,
+        projectId: entry.id,
+        id: ThreadId.make(`device-session-${index}`),
+        title: index === 0 ? "Local session" : "Remote session",
+      }),
+    ),
+  );
+  cleanup.defer(() => {
+    vi.mocked(useProjects).mockRestore();
+    vi.mocked(useQuietThreadShells).mockRestore();
+  });
+  vi.mocked(useHandleNewThread).mockReturnValue({
+    activeDraftThread: null,
+    activeThread: null,
+    defaultProjectRef: null,
+    handleNewThread: vi.fn(),
+    routeDraftId: null,
+    routeThreadRef: null,
+  });
+  cleanup.defer(() => vi.mocked(useHandleNewThread).mockRestore());
+  await using screen = await render(
+    <SidebarProvider>
+      <Sidebar routeReveal={{ observedKey: null, pendingKey: null }} />
+    </SidebarProvider>,
+  );
+  await expect.element(screen.getByRole("button", { name: /^Local session, / })).toBeVisible();
+  await expect.element(screen.getByRole("button", { name: /^Remote session, / })).toBeVisible();
+  await userEvent.click(screen.getByRole("combobox", { name: "Filter threads by device" }));
+  await userEvent.click(screen.getByRole("option", { name: /MacBook/ }));
+  await expect.element(screen.getByRole("button", { name: /^Remote session, / })).toBeVisible();
+  await expect
+    .element(screen.getByRole("button", { name: /^Local session, / }))
+    .not.toBeInTheDocument();
+  await expect
+    .element(screen.getByRole("status", { name: "Device activity" }))
+    .toHaveTextContent(
+      "Disconnected · activity unknown. Across all projects, including subagents.",
+    );
+  expect(JSON.parse(localStorage.getItem(key)!)).toBe("macbook");
+  await userEvent.click(
+    screen.getByRole("combobox", { name: "Filter threads by project", exact: true }),
+  );
+  await userEvent.click(screen.getByRole("option", { name: /local-project/ }));
+  await expect
+    .element(screen.getByRole("button", { name: /^Remote session, / }))
+    .not.toBeInTheDocument();
+  await expect
+    .element(screen.getByRole("button", { name: /^Local session, / }))
+    .not.toBeInTheDocument();
+  expect(JSON.parse(localStorage.getItem(key)!)).toBe("macbook");
+  await userEvent.click(screen.getByRole("combobox", { name: /Filter threads by project:/ }));
+  await userEvent.click(screen.getByRole("option", { name: "All projects", exact: true }));
+  await expect.element(screen.getByRole("button", { name: /^Remote session, / })).toBeVisible();
+
+  vi.mocked(useEnvironmentIdentities).mockReturnValue([{ environmentId: local, label: "LTR-DEV" }]);
+  await screen.rerender(
+    <SidebarProvider>
+      <Sidebar routeReveal={{ observedKey: null, pendingKey: null }} />
+    </SidebarProvider>,
+  );
+  await expect
+    .element(screen.getByRole("combobox", { name: "Filter threads by device" }))
+    .toHaveTextContent("Unavailable device");
+  await expect
+    .element(screen.getByRole("button", { name: /^Local session, / }))
+    .not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("combobox", { name: "Filter threads by device" }));
+  await userEvent.click(screen.getByRole("option", { name: "All devices", exact: true }));
+  await expect.element(screen.getByRole("button", { name: /^Local session, / })).toBeVisible();
 });

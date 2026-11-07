@@ -28,7 +28,17 @@ Qwen, Kimi, GLM, MiniMax, Doubao/Seed, ERNIE, Hunyuan, Step and Yi. Card and hov
 short label, or PNG/JPEG/WebP image up to 128 KB; clear an override to restore the
 detected device icon.
 
-These preferences belong to the current web or desktop client. **Export
+Use **Filter threads by device** to view sessions hosted by one connected T3
+environment, across projects. Device and project filters combine; choose **All
+devices** to remove the device filter. The device choice is saved on this client.
+
+The device's active count includes queued, starting, running and waiting turns,
+including subagents and projects outside the current project filter. Use it to
+check for work before updating a host or restarting it. A disconnected device's
+activity is unknown; cached sessions cannot confirm that it is idle. The count
+covers T3 sessions, not other processes on the machine.
+
+Group and icon preferences belong to the current web or desktop client. **Export
 preferences** and **Import preferences** transfer them to another client; import
 replaces the current preferences. Thread links identify both environment and
 thread, so the destination client must connect to the same environments. This

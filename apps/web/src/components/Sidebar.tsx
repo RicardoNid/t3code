@@ -1,3 +1,6 @@
+import { liveShellEnvironmentIdsAtom } from "../state/shell";
+import { SidebarDeviceScope } from "./sidebar/SidebarDeviceScope";
+import { sidebarDeviceActivity, sidebarDeviceProjectScope } from "./sidebar/deviceScope";
 import { personalSidebarGroups, useSidebarPersonalization } from "../sidebarPersonalization";
 import { PersonalSidebarControls } from "./sidebar/PersonalSidebarControls";
 import { PersonalSidebarGroupHeader } from "./sidebar/PersonalSidebarGroupHeader";
@@ -896,6 +899,8 @@ function readRouteThreadKey(router: AnyRouter): string | null {
   return ref === null ? null : scopedThreadKey(ref);
 }
 
+const SIDEBAR_DEVICE_SCOPE_SCHEMA = Schema.NullOr(Schema.String);
+
 export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReveal }) {
   const {
     projects,
@@ -1013,6 +1018,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   );
   const environmentMachineById = useEnvironmentMachines();
   const projectGroupsRef = useRef(projectGroups);
+  const [deviceScopeId, setDeviceScopeId] = useLocalStorage<string | null, string | null>(
+    "t3code:sidebar-device-scope:v1",
+    null,
+    SIDEBAR_DEVICE_SCOPE_SCHEMA,
+  );
   const persistedProjectScopeKeys = useUiStateStore((store) => store.sidebarProjectScopeKeys);
   const setPersistedProjectScopeKeys = useUiStateStore((store) => store.setSidebarProjectScopeKeys);
   const [projectScopeMenuState, dispatchProjectScopeMenu] = useReducer(
@@ -1096,7 +1106,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const chosenProjectGroups = scopeGroups.filter((project) =>
     chosenProjectScopeKeys.includes(project.projectKey),
   );
-  const chosenScopeProjectKeys =
+  const chosenScopeProjectKeys = sidebarDeviceProjectScope(
+    projects,
     chosenProjectGroups.length === 0
       ? null
       : new Set(
@@ -1105,8 +1116,20 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               (projectRef) => `${projectRef.environmentId}:${projectRef.projectId}`,
             ),
           ),
-        );
+        ),
+    deviceScopeId,
+  );
   const threads = useQuietThreadShells();
+  const deviceActivity = sidebarDeviceActivity(threads);
+  const liveDeviceIds = useAtomValue(liveShellEnvironmentIdsAtom);
+  const deviceScopeItems = [...environmentLabelById].map(([environmentId, label]) => ({
+    environmentId,
+    label: label ?? environmentId,
+    connected: connectedEnvironmentIds.includes(environmentId),
+    live: liveDeviceIds.has(environmentId),
+    active: deviceActivity.get(environmentId) ?? 0,
+  }));
+
   const routeRowThreadKey =
     routeThreadRef === null
       ? null
@@ -1134,8 +1157,14 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     delegatedUnderParent,
     findThread: (key) => threads.find((candidate) => threadShellKey(candidate) === key),
   });
+  const revealWidensDeviceScope =
+    revealWidensScope &&
+    deviceScopeId !== null &&
+    threads.find((thread) => threadShellKey(thread) === routeRowThreadKey)?.environmentId !==
+      deviceScopeId;
   const projectScopeKeys = revealWidensScope ? [] : chosenProjectScopeKeys;
-  const projectScopeKey = projectScopeKeys.length === 0 ? null : projectScopeKeys.join("\n");
+  const effectiveDeviceScopeId = revealWidensDeviceScope ? null : deviceScopeId;
+  const projectScopeKey = JSON.stringify([projectScopeKeys, effectiveDeviceScopeId]);
   const toggleProjectScopeKey = (key: string) =>
     setProjectScopeKeys(
       projectScopeKeys.includes(key)
@@ -1146,12 +1175,19 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   // scope. Route changes arrive from history, links and the palette, and only this
   // component holds the project groups that decide a widening, so no single
   // navigation handler can make the write.
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- writes a route reveal's widened project scope back to the persisted sidebar scope and clears selection
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- persists a route reveal's widened project and device scopes and clears selection
   useEffect(() => {
     if (!revealWidensScope) return;
     clearSelection();
     setPersistedProjectScopeKeys([]);
-  }, [clearSelection, revealWidensScope, setPersistedProjectScopeKeys]);
+    if (revealWidensDeviceScope) setDeviceScopeId(null);
+  }, [
+    clearSelection,
+    revealWidensScope,
+    revealWidensDeviceScope,
+    setPersistedProjectScopeKeys,
+    setDeviceScopeId,
+  ]);
   const revealActiveRow = useActiveRowReveal(routeReveal, routeRowThreadKey);
   const showProjectEnvironments = projectGroupsSpanEnvironments(projectGroups);
   const scratchMachineLabelFor = (
@@ -1186,9 +1222,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   });
   const scopedProjectGroups = revealWidensScope ? [] : chosenProjectGroups;
   const scopedProjectRefs = scopedProjectGroups.flatMap((project) => project.memberProjectRefs);
-  const scopedProjectKeys = revealWidensScope ? null : chosenScopeProjectKeys;
+  const scopedProjectKeys = revealWidensScope
+    ? sidebarDeviceProjectScope(projects, null, effectiveDeviceScopeId)
+    : chosenScopeProjectKeys;
   const threadSearch = useThreadSearch(
-    connectedEnvironmentIds,
+    effectiveDeviceScopeId === null
+      ? connectedEnvironmentIds
+      : connectedEnvironmentIds.filter((id) => id === effectiveDeviceScopeId),
     threadSearchQuery,
     scopedProjectGroups.length === 0
       ? {}
@@ -1345,8 +1385,16 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       boringSidebarEnabled && !personalGrouped
         ? scopedProjectGroups.length === 0
           ? // An archived project keeps a folder for its active threads, below the rest.
-            [...scopeGroups, ...projectGroups.filter((project) => project.archived)]
-          : scopedProjectGroups
+            [...scopeGroups, ...projectGroups.filter((project) => project.archived)].filter(
+              (group) =>
+                effectiveDeviceScopeId === null ||
+                group.memberProjectRefs.some((ref) => ref.environmentId === effectiveDeviceScopeId),
+            )
+          : scopedProjectGroups.filter(
+              (group) =>
+                effectiveDeviceScopeId === null ||
+                group.memberProjectRefs.some((ref) => ref.environmentId === effectiveDeviceScopeId),
+            )
         : null,
     keepEmptyFolders: (group) =>
       scopedProjectGroups.length > 0 || (group.pinned && !group.archived),
@@ -3043,6 +3091,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               }))}
               assignment={groupAssignment}
               onAssignmentDone={() => setGroupAssignment(null)}
+            />
+            <SidebarDeviceScope
+              devices={deviceScopeItems}
+              value={effectiveDeviceScopeId}
+              onChange={(id) => {
+                clearSelection();
+                setDeviceScopeId(id);
+                scrollSidebarToTop(sidebarContentRef.current);
+              }}
             />
             <SidebarThreadHeader
               hasProjects={projectGroups.length > 0}
