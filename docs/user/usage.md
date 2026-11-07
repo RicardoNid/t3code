@@ -200,3 +200,26 @@ Use `Ctrl+Shift+1/2/3/4` (`Cmd+Shift+1/2/3/4` on macOS) for the past
 24 hours, 7 days, 30 days, or 90 days. Period shortcuts do nothing on Limits.
 Press `Escape` to return to the previous page. Customize these shortcuts in
 **Settings → Keybindings**.
+
+## Check API account balances
+
+On **Usage → Limits**, **API balances** shows balances for recognized DeepSeek and
+Kimi API credentials saved by local OpenCode instances. DeepSeek reports its
+balance currency; Kimi's China and international accounts use CNY and USD
+respectively. Kimi Coding subscription keys are separate from Kimi API accounts.
+
+Each server reads its own OpenCode `auth.json` or selected OpenCode 2 credential
+and queries the vendor's official endpoint. External OpenCode servers do not use
+the T3 host's credentials. Keys stay on their server; only a fingerprint and the
+balance result reach the client. Refresh limits to update the balances.
+
+The same key counts once across selected environments and OpenCode instances;
+T3 uses the newest result instead of adding duplicate balances. Different keys
+remain separate, even if they belong to one billing account. Balances are account
+funds, not per-key quotas or estimated costs, and currencies are not combined.
+A failed lookup is unavailable, never a zero balance.
+
+Recognized GLM, MiMo, Qwen, Hunyuan, MiniMax and Kimi Coding credentials currently
+show that balance lookup is unsupported. This does not mean their balance is
+zero. Cloud billing APIs may require separate cloud-account credentials; T3 does
+not infer those from a model API key or use undocumented console endpoints.

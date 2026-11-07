@@ -12,6 +12,7 @@ import {
   PROVIDER_DISPLAY_NAMES,
   type ServerProvider,
   type ServerProviderUsageLimits,
+  type ServerProviderApiBalance,
   type ServerProviderUsageWindow,
   type UsageLimitSourceSnapshots,
 } from "@t3tools/contracts";
@@ -161,6 +162,49 @@ export type LimitPresentations = ReadonlyMap<
     } | null;
   }
 >;
+
+export function apiBalanceVendorLabel(vendor: string): string {
+  const labels: Record<string, string> = {
+    deepseek: "DeepSeek",
+    "kimi-cn": "Kimi (China)",
+    kimi: "Kimi (International)",
+    "kimi-coding": "Kimi Coding",
+    glm: "GLM",
+    mimo: "MiMo",
+    qwen: "Qwen",
+    hunyuan: "Hunyuan",
+    minimax: "MiniMax",
+  };
+  return labels[vendor] ?? vendor;
+}
+
+export function collectApiBalances(presentations: LimitPresentations) {
+  const accounts = new Map<
+    string,
+    { id: string; balance: ServerProviderApiBalance; sources: string[] }
+  >();
+  for (const presentation of presentations.values()) {
+    for (const provider of providersWithLimits(presentation.serverConfig?.providers ?? [])) {
+      for (const balance of provider.usageLimits?.apiBalances ?? []) {
+        const id = `${balance.vendor}:${balance.credentialFingerprint}`;
+        const previous = accounts.get(id);
+        const newer =
+          !previous ||
+          Date.parse(balance.checkedAt) > Date.parse(previous.balance.checkedAt) ||
+          (balance.checkedAt === previous.balance.checkedAt &&
+            previous.balance.unavailable !== undefined &&
+            balance.unavailable === undefined);
+        const source = presentation.entry.target.label;
+        accounts.set(id, {
+          id,
+          balance: newer ? balance : previous.balance,
+          sources: [...new Set([...(previous?.sources ?? []), source])],
+        });
+      }
+    }
+  }
+  return [...accounts.values()].sort((a, b) => a.id.localeCompare(b.id));
+}
 
 export function collectExternalUsageLinks(presentations: LimitPresentations) {
   const links = new Map<

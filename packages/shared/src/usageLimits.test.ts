@@ -14,6 +14,7 @@ import {
   sameUsageLimitCommandCoverage,
   withUsageLimitsCommands,
   collectLimitAccounts,
+  collectApiBalances,
   collectExternalUsageLinks,
   collectLimitNotices,
   collectLimitPools,
@@ -1504,5 +1505,107 @@ describe("ChatGPT sharing presentation", () => {
         auth: { status: "unauthenticated", subscriptionSharing: true },
       }),
     ).toBe(false);
+  });
+});
+
+describe("API account balances", () => {
+  it("deduplicates the same key across devices and instances without summing balances", () => {
+    const balance = {
+      vendor: "deepseek",
+      credentialFingerprint: "same-key",
+      checkedAt: "2026-11-06T00:00:00.000Z",
+      balances: [{ currency: "CNY", total: "5.00" }],
+    };
+    const providers = (apiBalances: (typeof balance)[]) => [
+      provider({ usageLimits: { checkedAt: balance.checkedAt, windows: [], apiBalances } }),
+    ];
+    const presentations = new Map([
+      [
+        EnvironmentId.make("a"),
+        {
+          entry: { target: { label: "MacBook" } },
+          serverConfig: {
+            providers: providers([balance, { ...balance, credentialFingerprint: "other-key" }]),
+          },
+        },
+      ],
+      [
+        EnvironmentId.make("b"),
+        {
+          entry: { target: { label: "LTR-DEV" } },
+          serverConfig: {
+            providers: [
+              ...providers([
+                {
+                  ...balance,
+                  checkedAt: "2026-11-06T01:00:00.000Z",
+                  balances: [{ currency: "CNY", total: "4.25" }],
+                },
+              ]),
+              ...providers([balance]),
+            ],
+          },
+        },
+      ],
+    ]);
+    const accounts = collectApiBalances(presentations);
+    expect(accounts).toHaveLength(2);
+    expect(accounts.find((account) => account.id.endsWith("same-key"))?.balance.balances).toEqual([
+      { currency: "CNY", total: "4.25" },
+    ]);
+    expect(accounts.find((account) => account.id.endsWith("same-key"))?.sources).toEqual([
+      "MacBook",
+      "LTR-DEV",
+    ]);
+    expect(
+      collectApiBalances(
+        new Map([[EnvironmentId.make("a"), presentations.get(EnvironmentId.make("a"))!]]),
+      ),
+    ).toHaveLength(2);
+  });
+  it("separates vendors and exposes a newer failed refresh as unavailable", () => {
+    const good = {
+      vendor: "deepseek",
+      credentialFingerprint: "same",
+      checkedAt: "2026-11-06T00:00:00.000Z",
+      balances: [{ currency: "USD", total: "2.00" }],
+    };
+    const accounts = collectApiBalances(
+      new Map([
+        [
+          EnvironmentId.make("a"),
+          {
+            entry: { target: { label: "Host" } },
+            serverConfig: {
+              providers: [
+                provider({
+                  usageLimits: {
+                    checkedAt: good.checkedAt,
+                    windows: [],
+                    apiBalances: [
+                      good,
+                      { ...good, vendor: "kimi" },
+                      {
+                        ...good,
+                        checkedAt: "2026-11-06T01:00:00.000Z",
+                        balances: [],
+                        unavailable: "probeFailed",
+                      },
+                    ],
+                  },
+                }),
+              ],
+            },
+          },
+        ],
+      ]),
+    );
+    expect(accounts).toHaveLength(2);
+    expect(
+      accounts.find((account) => account.balance.vendor === "deepseek")?.balance,
+    ).toMatchObject({ unavailable: "probeFailed", balances: [] });
+    expect(
+      accounts.find((account) => account.balance.vendor === "kimi")?.balance.balances[0]?.total,
+    ).toBe("2.00");
   });
 });

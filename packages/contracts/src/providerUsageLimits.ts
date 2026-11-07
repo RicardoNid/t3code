@@ -28,11 +28,22 @@ export const ServerProviderResetCredits = Schema.Struct({
 });
 export type ServerProviderResetCredits = typeof ServerProviderResetCredits.Type;
 
+const BalanceAmount = Schema.String.check(Schema.isPattern(/^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$/));
+export const ServerProviderApiBalance = Schema.Struct({
+  vendor: TrimmedNonEmptyString,
+  credentialFingerprint: TrimmedNonEmptyString,
+  checkedAt: IsoDateTime,
+  balances: Schema.Array(Schema.Struct({ currency: TrimmedNonEmptyString, total: BalanceAmount })),
+  unavailable: Schema.optional(Schema.Literals(["probeFailed", "unsupported"])),
+});
+export type ServerProviderApiBalance = typeof ServerProviderApiBalance.Type;
+
 /** Clear bars for unavailable accounts; retain last good bars after a failed probe. */
 export const ServerProviderUsageLimits = Schema.Struct({
   checkedAt: IsoDateTime,
   windows: ForwardCompatibleArray(ServerProviderUsageWindow),
   credentialFingerprint: Schema.optional(TrimmedNonEmptyString),
+  apiBalances: Schema.optional(ForwardCompatibleArray(ServerProviderApiBalance)),
   resetCredits: Schema.optional(ServerProviderResetCredits),
   externalUsage: Schema.optional(
     Schema.Struct({

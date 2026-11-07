@@ -4,6 +4,8 @@ import { EnvironmentId } from "@t3tools/contracts";
 import { normalizeProviderAccentColor } from "@t3tools/client-runtime/state/provider-instance-display";
 import {
   collectLimitAccounts,
+  collectApiBalances,
+  apiBalanceVendorLabel,
   collectExternalUsageLinks,
   collectLimitNotices,
   collectLimitPools,
@@ -423,6 +425,7 @@ export function UsageLimitsSection({
       ? presentations
       : new Map([...presentations].filter(([id]) => selectedEnvironmentIds.has(id)));
   const pools = collectLimitPools(collectLimitAccounts(selected), now);
+  const balances = collectApiBalances(selected);
   const notices = collectLimitNotices(selected);
   const externalLinks = collectExternalUsageLinks(selected);
   const colors = useProviderColors();
@@ -443,6 +446,38 @@ export function UsageLimitsSection({
             ? "Select an environment to see limits."
             : "No provider on the selected environments reports subscription limits."}
         </Text>
+      ) : null}
+      {balances.length > 0 ? (
+        <View accessibilityLabel="API balances" className="gap-3">
+          <Text className="text-base font-t3-medium text-foreground">API balances</Text>
+          <Text className="text-sm text-foreground-muted">
+            Account balances, counted once per API key across devices. Different keys may share an
+            account.
+          </Text>
+          {balances.map(({ id, balance, sources }) => (
+            <View key={id} className="gap-1 rounded-xl border border-border-subtle p-4">
+              <Text className="text-base font-t3-medium text-foreground">
+                {apiBalanceVendorLabel(balance.vendor)}
+              </Text>
+              {balance.unavailable ? (
+                <Text className="text-sm text-foreground-muted">
+                  {balance.unavailable === "unsupported"
+                    ? "Balance lookup is not supported with this API key."
+                    : "Balance unavailable. Refresh to retry."}
+                </Text>
+              ) : (
+                balance.balances.map((amount) => (
+                  <Text key={amount.currency} className="text-lg text-foreground">
+                    {amount.total} {amount.currency}
+                  </Text>
+                ))
+              )}
+              <Text className="text-xs text-foreground-muted">
+                {sources.join(", ")} · Checked {new Date(balance.checkedAt).toLocaleString()}
+              </Text>
+            </View>
+          ))}
+        </View>
       ) : null}
       {pools.map((pool, index) => {
         const windows = displayLimitWindows(pool);

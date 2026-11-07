@@ -1,4 +1,5 @@
-import * as NodeSqlite from "node:sqlite";
+import { readStoredApiKey } from "./apiCredentials.ts";
+import { readOpenCodeApiBalances } from "./apiBalances.ts";
 
 import type { ServerProviderUsageWindow } from "@t3tools/contracts";
 import * as Digest from "effect/crypto/Digest";
@@ -24,15 +25,6 @@ const AuthFile = Schema.Struct({ "opencode-go": Schema.optionalKey(Schema.Unknow
 const ApiAuth = Schema.Struct({ type: Schema.Literal("api"), key: Schema.String });
 const decodeAuthFile = Schema.decodeEffect(Schema.fromJsonString(AuthFile));
 const decodeApiAuth = Schema.decodeUnknownOption(ApiAuth);
-// OpenCode 2's database tags a stored key "key"; auth.json tags it "api".
-const StoredKey = Schema.Struct({
-  type: Schema.Literal("key"),
-  key: Schema.String,
-  metadata: Schema.optionalKey(
-    Schema.NullOr(Schema.Struct({ server: Schema.optionalKey(Schema.Unknown) })),
-  ),
-});
-const decodeStoredKey = Schema.decodeOption(Schema.fromJsonString(StoredKey));
 const UsageWindow = Schema.Struct({
   percent: Schema.Finite,
   resetsAt: Schema.DateTimeUtcFromString,
@@ -40,48 +32,6 @@ const UsageWindow = Schema.Struct({
 const UsageResponse = Schema.Struct({
   usage: Schema.Struct({ rolling: UsageWindow, weekly: UsageWindow, monthly: UsageWindow }),
 });
-
-// Select before decoding so an OAuth or self-hosted connection cannot fall
-// through to another stored account. NULL-active rows predate the selection flag.
-class OpenCodeCredentialReadError extends Schema.TaggedError<OpenCodeCredentialReadError>()(
-  "OpenCodeCredentialReadError",
-  { databasePath: Schema.String, cause: Schema.Defect() },
-) {
-  override get message(): string {
-    return `Could not read OpenCode credentials from ${this.databasePath}.`;
-  }
-}
-
-const readStoredApiKey = (databasePath: string, integrationId: "opencode" | "opencode-go") =>
-  Effect.try({
-    try: () => {
-      const database = new NodeSqlite.DatabaseSync(databasePath, { readOnly: true });
-      try {
-        database.exec("PRAGMA busy_timeout = 100");
-        const row = database
-          .prepare(
-            `SELECT value FROM credential
-             WHERE integration_id = ? AND active IS NOT 0
-             ORDER BY active DESC, time_created DESC, id DESC LIMIT 1`,
-          )
-          .get(integrationId);
-        const stored =
-          typeof row?.value === "string"
-            ? Option.getOrUndefined(decodeStoredKey(row.value))
-            : undefined;
-        const server = stored?.metadata?.server;
-        if (typeof server === "string") {
-          const url = new URL(server);
-          if (`${url.origin}${url.pathname.replace(/\/+$/, "")}` !== "https://opencode.ai/console")
-            return undefined;
-        }
-        return stored?.key.trim();
-      } finally {
-        database.close();
-      }
-    },
-    catch: (cause) => new OpenCodeCredentialReadError({ databasePath, cause }),
-  }).pipe(Effect.orElseSucceed(() => undefined));
 
 /** External OpenCode servers own their credentials; never read the host's account for them. */
 export const readOpenCodeGoUsageLimits = Effect.fn("readOpenCodeGoUsageLimits")(function* (input: {
@@ -195,4 +145,14 @@ export const readOpenCodeGoUsageLimits = Effect.fn("readOpenCodeGoUsageLimits")(
       }),
     ),
   );
+});
+
+export const readOpenCodeUsageLimits = Effect.fn("readOpenCodeUsageLimits")(function* (
+  input: Parameters<typeof readOpenCodeGoUsageLimits>[0],
+) {
+  const [limits, apiBalances] = yield* Effect.all(
+    [readOpenCodeGoUsageLimits(input), readOpenCodeApiBalances(input)],
+    { concurrency: 2 },
+  );
+  return { ...limits, apiBalances };
 });

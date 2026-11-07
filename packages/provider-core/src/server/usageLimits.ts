@@ -84,6 +84,7 @@ export function applyUsageLimitsUpdate(input: {
   return {
     ...makeUsageLimits({ checkedAt: input.checkedAt, windows: merged.values() }),
     ...(previous?.resetCredits !== undefined ? { resetCredits: previous.resetCredits } : {}),
+    ...(previous?.apiBalances !== undefined ? { apiBalances: previous.apiBalances } : {}),
     ...(unavailable !== undefined ? { unavailable } : {}),
   };
 }
@@ -105,7 +106,9 @@ export function resolveUsageLimitsAfterProbe(input: {
 }): ServerProviderUsageLimits | undefined {
   const { published, probed } = input;
   if (probed?.unavailable?.reason === "probeFailed" && published && !published.unavailable) {
-    return published;
+    return probed.apiBalances === undefined
+      ? published
+      : { ...published, apiBalances: probed.apiBalances };
   }
   if (
     published &&

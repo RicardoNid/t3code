@@ -36,8 +36,16 @@ describe("applyUsageLimitsUpdate", () => {
   });
 
   it("upserts by id and keeps the reset a percent-only update omits", () => {
+    const apiBalances = [
+      {
+        vendor: "deepseek",
+        credentialFingerprint: "fingerprint",
+        checkedAt,
+        balances: [{ currency: "CNY", total: "1.23" }],
+      },
+    ];
     const next = applyUsageLimitsUpdate({
-      previous: published,
+      previous: { ...published, apiBalances },
       checkedAt: "2026-09-03T12:00:05.000Z",
       update: {
         windows: [{ id: "five_hour", kind: "session", label: "Session", usedPercent: 55 }],
@@ -47,6 +55,7 @@ describe("applyUsageLimitsUpdate", () => {
     expect(next).toEqual({
       checkedAt: "2026-09-03T12:00:05.000Z",
       windows: [{ ...session, usedPercent: 55 }, weekly],
+      apiBalances,
     });
   });
 
@@ -119,4 +128,21 @@ describe("resolveUsageLimitsAfterProbe", () => {
     expect(resolveUsageLimitsAfterProbe({ published, probed: unsupported })).toBe(unsupported);
     expect(resolveUsageLimitsAfterProbe({ published: undefined, probed: failed })).toBe(failed);
   });
+});
+
+it("updates or clears API balances even when a subscription probe falls back", () => {
+  const balance = {
+    vendor: "deepseek",
+    credentialFingerprint: "one",
+    checkedAt,
+    balances: [{ currency: "CNY", total: "2.00" }],
+  };
+  for (const apiBalances of [[balance], []]) {
+    const result = resolveUsageLimitsAfterProbe({
+      published: { ...published, apiBalances: [balance] },
+      probed: { checkedAt, windows: [], unavailable: { reason: "probeFailed" }, apiBalances },
+    });
+    expect(result?.windows).toEqual(published.windows);
+    expect(result?.apiBalances).toEqual(apiBalances);
+  }
 });

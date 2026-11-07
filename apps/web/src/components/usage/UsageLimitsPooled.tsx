@@ -1,6 +1,8 @@
 import {
   CHATGPT_USAGE_URL,
   collectLimitAccounts,
+  collectApiBalances,
+  apiBalanceVendorLabel,
   collectExternalUsageLinks,
   collectLimitNotices,
   collectLimitPools,
@@ -614,6 +616,7 @@ export function UsageLimitsPooled({
   const [segmentPopover] = useState(() => PopoverCreateHandle<SegmentPayload>());
   const segmentPopoverActions = useRef<PopoverPrimitive.Root.Actions | null>(null);
   const pools = collectLimitPools(collectLimitAccounts(presentations), now);
+  const balances = collectApiBalances(presentations);
   const notices = collectLimitNotices(presentations);
   const externalLinks = collectExternalUsageLinks(presentations);
   const cursorPromptAt =
@@ -623,10 +626,44 @@ export function UsageLimitsPooled({
     ) + 1;
   return (
     <div className="flex flex-col gap-8">
-      {pools.length === 0 && notices.length === 0 && !cursorPrompt && externalLinks.length === 0 ? (
+      {pools.length === 0 &&
+      balances.length === 0 &&
+      notices.length === 0 &&
+      !cursorPrompt &&
+      externalLinks.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           No provider on the selected environments reports subscription limits.
         </p>
+      ) : null}
+      {balances.length > 0 ? (
+        <section aria-label="API balances" className="flex flex-col gap-3">
+          <h2 className="text-sm font-medium">API balances</h2>
+          <p className="text-xs text-muted-foreground">
+            Account balances, counted once per API key across devices. Different keys may share an
+            account.
+          </p>
+          {balances.map(({ id, balance, sources }) => (
+            <div key={id} className="flex flex-col gap-1 rounded-xl border p-4">
+              <span className="text-sm font-medium">{apiBalanceVendorLabel(balance.vendor)}</span>
+              {balance.unavailable ? (
+                <span className="text-sm text-muted-foreground">
+                  {balance.unavailable === "unsupported"
+                    ? "Balance lookup is not supported with this API key."
+                    : "Balance unavailable. Refresh to retry."}
+                </span>
+              ) : (
+                balance.balances.map((amount) => (
+                  <span key={amount.currency} className="text-lg tabular-nums">
+                    {amount.total} {amount.currency}
+                  </span>
+                ))
+              )}
+              <span className="text-xs text-muted-foreground">
+                {sources.join(", ")} · Checked {new Date(balance.checkedAt).toLocaleString()}
+              </span>
+            </div>
+          ))}
+        </section>
       ) : null}
       <SegmentPopoverContext value={segmentPopover}>
         {pools.map((pool, index) => (

@@ -63,3 +63,79 @@ describe("UsageLimitsPooled ChatGPT usage card", () => {
       .toBeVisible();
   });
 });
+
+it("keeps a single API balance through refresh and filtering while hiding subscription emptiness", async () => {
+  const balance = {
+    vendor: "deepseek",
+    credentialFingerprint: "hashed-credential",
+    checkedAt,
+    balances: [{ currency: "CNY", total: "12.345" }],
+  };
+  const account = {
+    ...managedChatGpt("opencode", "OpenCode"),
+    driver: ProviderDriverKind.make("opencode"),
+    usageLimits: {
+      checkedAt,
+      windows: [],
+      apiBalances: [balance],
+      unavailable: { reason: "unsupported" as const },
+    },
+  };
+  const desk = { entry: { target: { label: "Desk" } }, serverConfig: { providers: [account] } };
+  const laptop = { entry: { target: { label: "Laptop" } }, serverConfig: { providers: [account] } };
+  const presentations = new Map([
+    [EnvironmentId.make("desk"), desk],
+    [EnvironmentId.make("laptop"), laptop],
+  ]);
+  await using screen = await render(
+    <UsageLimitsPooled presentations={presentations} now={Date.parse(checkedAt)} />,
+  );
+  await expect.element(screen.getByText("12.345 CNY", { exact: true })).toBeVisible();
+  await expect
+    .element(
+      screen.getByText("No provider on the selected environments reports subscription limits."),
+    )
+    .not.toBeInTheDocument();
+  await screen.rerender(
+    <UsageLimitsPooled
+      presentations={new Map([[EnvironmentId.make("desk"), desk]])}
+      now={Date.parse(checkedAt)}
+    />,
+  );
+  await expect.element(screen.getByText("12.345 CNY", { exact: true })).toBeVisible();
+  await screen.rerender(
+    <UsageLimitsPooled
+      presentations={
+        new Map([
+          [
+            EnvironmentId.make("desk"),
+            {
+              ...desk,
+              serverConfig: {
+                providers: [
+                  {
+                    ...account,
+                    usageLimits: {
+                      ...account.usageLimits,
+                      apiBalances: [
+                        {
+                          ...balance,
+                          checkedAt: "2026-10-25T17:00:00.000Z",
+                          balances: [],
+                          unavailable: "probeFailed",
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        ])
+      }
+      now={Date.parse(checkedAt)}
+    />,
+  );
+  await expect.element(screen.getByText("Balance unavailable. Refresh to retry.")).toBeVisible();
+  await expect.element(screen.getByText("12.345 CNY", { exact: true })).not.toBeInTheDocument();
+});
