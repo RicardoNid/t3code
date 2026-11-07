@@ -158,8 +158,8 @@ appears once two or more machines are switched on.
 The model picker offers the union of models on eligible machines, including models only one
 machine supports. A thread is sent to a machine with the selected provider, model and options.
 
-Choose **Hardware** to prefer free CPU and memory, or **Usage first** to prefer the largest
-remaining subscription quota. For Usage first, set each account's relative capacity: a plan
+Choose **Hardware** to prefer free CPU and memory, or **Usage** to prefer the largest
+remaining subscription quota. For Usage, set each account's relative capacity: a plan
 with ten times your baseline quota uses **10**, so 5% remaining compares with 50% of a
 capacity-1 plan. Set this from the actual plan quota; price ratios need not match quota ratios.
 The same account on several machines shares one capacity and its newest quota snapshot.
