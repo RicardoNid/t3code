@@ -9,6 +9,7 @@ import {
   type ServerConfig,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
+import { isLocalLoopbackHost, normalizeHostname } from "@t3tools/shared/hostClassification";
 
 import type { EnvironmentPresentation } from "./connection/presentation.ts";
 import { connectionRoutes, routeHttpBaseUrl } from "./connection/routes.ts";
@@ -68,10 +69,22 @@ export interface LinkableMachine {
    * Where the client knows it answers, most preferred first: the addresses it
    * reports, then its saved routes, then its T3 Connect address. The server
    * keeps only those that answer as this machine. Empty for a machine reached
-   * only over SSH, whose forward lives in this client.
+   * only over SSH or loopback, whose local route cannot be reused by another server.
    */
   readonly urls: ReadonlyArray<string>;
 }
+
+const isServerLinkAddress = (address: string): boolean => {
+  const url = URL.parse(address);
+  if (url === null || (url.protocol !== "http:" && url.protocol !== "https:")) return false;
+  const host = normalizeHostname(url.hostname);
+  return (
+    !isLocalLoopbackHost(host) &&
+    !host.endsWith(".localhost") &&
+    host !== "0.0.0.0" &&
+    host !== "::"
+  );
+};
 
 /**
  * The catalog's machines other than the thread's own, in catalog order, then those only T3
@@ -109,11 +122,13 @@ export function linkableMachines(input: {
         connectOnly: false,
         linked: linkedIds.has(environment.environmentId),
         urls: [
-          ...new Set([
-            ...reported,
-            ...routes,
-            ...(connect === undefined ? [] : [connect.httpBaseUrl]),
-          ]),
+          ...new Set(
+            [
+              ...reported,
+              ...routes,
+              ...(connect === undefined ? [] : [connect.httpBaseUrl]),
+            ].filter(isServerLinkAddress),
+          ),
         ],
       };
     });
@@ -135,7 +150,7 @@ export function linkableMachines(input: {
         connected: false,
         connectOnly: true,
         linked: linkedIds.has(environment.environmentId),
-        urls: [environment.endpoint.httpBaseUrl],
+        urls: [environment.endpoint.httpBaseUrl].filter(isServerLinkAddress),
       };
     });
   return [...saved, ...connectOnly];

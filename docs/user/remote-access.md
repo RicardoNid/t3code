@@ -352,6 +352,14 @@ makes the pairing code itself; otherwise paste one from that machine's
 **Settings → Sharing & access**. From a terminal, use
 `t3 environment link <address> --pairing-code <code> --access <mode>`.
 
+Linking connects the two **servers**. A desktop client being connected to both machines
+is not enough: a client-local `127.0.0.1` address or SSH forward cannot be reused
+by the other server. Use an address the source server can reach through network
+access, Tailscale HTTPS or T3 Connect. Local-only addresses are omitted from the
+machine's automatic address candidates; if none remain, enter a reachable address.
+A failed link is not saved, so another request will ask again. A successful link
+is saved on the source environment and can be reused by its other threads.
+
 You can also ask an agent to link a machine by name, such as "delegate this to
 my vps". It shows a card in the thread where you pick the machine the same way
 and the access, then approve.

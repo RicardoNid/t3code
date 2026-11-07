@@ -188,10 +188,29 @@ describe("linkableMachines", () => {
   it("lists the other machines with reported addresses before saved ones, once each", () => {
     const here = presentation("environment-here", "Here", { saved: ["http://localhost:3773"] });
     const vps = presentation("environment-vps", "VPS", {
-      saved: ["https://vps.example.com", "https://vps.ts.net"],
-      reported: ["https://vps.ts.net"],
+      saved: [
+        "http://127.0.0.1:3773",
+        "https://vps.example.com",
+        "https://vps.ts.net",
+        "http://localhost:3773",
+        "http://[::1]:3773",
+        "http://app.localhost:3773",
+        "http://0.0.0.0:3773",
+        "http://[::]:3773",
+      ],
+      reported: ["http://127.0.0.1:3773", "https://vps.ts.net"],
     });
-    const mini = presentation("environment-mini", "Mini", { connected: false });
+    const mini = presentation("environment-mini", "Mini", {
+      connected: false,
+      saved: [
+        "http://127.0.0.1:3773",
+        "http://localhost:3773",
+        "http://[::1]:3773",
+        "http://app.localhost:3773",
+        "http://0.0.0.0:3773",
+        "http://[::]:3773",
+      ],
+    });
     expect(
       linkableMachines({
         environments: [here, vps, mini],
