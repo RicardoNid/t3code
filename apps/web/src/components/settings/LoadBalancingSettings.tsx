@@ -1,14 +1,12 @@
-import { resolveEnvironmentMachineKind, PROVIDER_DISPLAY_NAMES } from "@t3tools/contracts";
+import { resolveEnvironmentMachineKind } from "@t3tools/contracts";
 
 import {
   useClientSettings,
   useClientSettingsHydrated,
   updateClientSettings,
 } from "~/hooks/useSettings";
-import { useEnvironmentProviders, type EnvironmentPresentation } from "~/state/environments";
+import { type EnvironmentPresentation } from "~/state/environments";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
-import { loadBalancingAccountKey } from "@t3tools/client-runtime/load-balancing";
-import { Input } from "../ui/input";
 import { Switch } from "../ui/switch";
 import { EnvironmentRow, EnvironmentTransportLabel } from "./EnvironmentRow";
 import { FoldedSettingsSection } from "./FoldedSettingsSection";
@@ -56,26 +54,11 @@ export function LoadBalancingSettings({
     loadBalancingEnabled: current.loadBalancingEnabled,
     loadBalancingWeights: current.loadBalancingWeights,
     loadBalancingStrategy: current.loadBalancingStrategy,
-    loadBalancingCapacities: current.loadBalancingCapacities,
   }));
   const settingsHydrated = useClientSettingsHydrated();
-  const providersByEnvironment = useEnvironmentProviders();
 
   if (environments.length < 2) return null;
 
-  const accounts = new Map(
-    environments.flatMap((environment) =>
-      (providersByEnvironment.get(environment.environmentId) ?? [])
-        .filter((provider) => provider.installed && provider.auth.status !== "unauthenticated")
-        .map(
-          (provider) =>
-            [
-              loadBalancingAccountKey(environment.environmentId, provider),
-              { provider, environment },
-            ] as const,
-        ),
-    ),
-  );
   const { id, title } = searchableSetting("load-balancing");
   return (
     <FoldedSettingsSection
@@ -104,7 +87,7 @@ export function LoadBalancingSettings({
         title="Routing strategy"
         description={
           settings.loadBalancingStrategy === "usage"
-            ? "Prefer remaining subscription quota, adjusted by capacity. Hardware breaks ties; unknown quotas fall back to hardware."
+            ? "Prefer remaining quota on confirmed subscription accounts. Known plan allowances are applied automatically; hardware breaks ties. API models use hardware."
             : "Prefer available CPU and memory, weighted by each machine's preference. Only machines supporting the selected model are eligible."
         }
         control={
@@ -170,53 +153,6 @@ export function LoadBalancingSettings({
           </Select>
         </EnvironmentRow>
       ))}
-      {settings.loadBalancingStrategy === "usage" && (
-        <>
-          <SettingsRow
-            title="Subscription capacity"
-            description="Use 1 for a baseline plan, or 10 for ten times its quota. Shared accounts use one value; price alone does not determine capacity."
-          />
-          {[...accounts].map(([accountKey, { provider, environment }]) => {
-            const capacity = settings.loadBalancingCapacities[accountKey] ?? 1;
-            const label = provider.displayName ?? PROVIDER_DISPLAY_NAMES[provider.driver];
-            return (
-              <SettingsRow
-                key={accountKey}
-                title={label}
-                description={provider.auth.email ?? environment.label}
-                control={
-                  <div className="w-36 shrink-0">
-                    <Input
-                      key={`${accountKey}:${capacity}`}
-                      type="number"
-                      size="compact"
-                      min={0.01}
-                      max={1000000}
-                      step="any"
-                      aria-label={`${label} ${provider.auth.email ?? environment.label} relative capacity`}
-                      defaultValue={capacity}
-                      disabled={!settingsHydrated || !settings.loadBalancingEnabled}
-                      onBlur={(event) => {
-                        const value = Number(event.currentTarget.value);
-                        if (!Number.isFinite(value) || value < 0.01 || value > 1000000) {
-                          event.currentTarget.value = String(capacity);
-                          return;
-                        }
-                        updateClientSettings({
-                          loadBalancingCapacities: {
-                            ...settings.loadBalancingCapacities,
-                            [accountKey]: value,
-                          },
-                        });
-                      }}
-                    />
-                  </div>
-                }
-              />
-            );
-          })}
-        </>
-      )}
     </FoldedSettingsSection>
   );
 }

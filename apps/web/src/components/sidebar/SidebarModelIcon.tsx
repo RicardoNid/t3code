@@ -1,11 +1,11 @@
 import type { ReactNode } from "react";
 import { modelBrand, useSidebarPersonalization } from "../../sidebarPersonalization";
 import { ClaudeAI, OpenAI } from "../Icons";
-import deepseek from "../../assets/model-icons/deepseek.svg";
+import deepseek from "../../../../../packages/shared/assets/model-icons/deepseek.svg";
 import gemini from "../../assets/model-icons/gemini.svg";
 import qwen from "../../assets/model-icons/qwen.svg";
 
-import kimi from "../../assets/model-icons/kimi.svg";
+import kimi from "../../../../../packages/shared/assets/model-icons/kimi.svg";
 import zhipu from "../../assets/model-icons/zhipu.svg";
 import minimax from "../../assets/model-icons/minimax.svg";
 import doubao from "../../assets/model-icons/doubao.svg";

@@ -1,3 +1,5 @@
+import { Image } from "expo-image";
+import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { EnvironmentId } from "@t3tools/contracts";
@@ -38,6 +40,27 @@ const DRIVER_LABEL: Partial<Record<string, string>> = {
   antigravity: "Antigravity",
 };
 const PACE_LABEL = { ahead: "Ahead of pace", on: "On pace", under: "Under pace" } as const;
+
+function ApiBalanceIcon({ vendor }: { readonly vendor: string }) {
+  const { themeAppearance } = useAppearancePreferences();
+  const source =
+    vendor === "deepseek"
+      ? require("../../../../../packages/shared/assets/model-icons/deepseek.svg")
+      : vendor.startsWith("kimi")
+        ? require("../../../../../packages/shared/assets/model-icons/kimi.svg")
+        : null;
+  return source ? (
+    <Image
+      source={source}
+      contentFit="contain"
+      style={{
+        width: 16,
+        height: 16,
+        tintColor: themeAppearance === "dark" ? "#e5e5e5" : "#171717",
+      }}
+    />
+  ) : null;
+}
 
 function accountName(account: LimitAccount) {
   if (account.displayName) return account.displayName;
@@ -438,6 +461,7 @@ export function UsageLimitsSection({
     <View className="gap-6">
       {pools.length === 0 &&
       notices.length === 0 &&
+      balances.length === 0 &&
       failedLabels.length === 0 &&
       !cursorPrompt &&
       externalLinks.length === 0 ? (
@@ -450,33 +474,34 @@ export function UsageLimitsSection({
       {balances.length > 0 ? (
         <View accessibilityLabel="API balances" className="gap-3">
           <Text className="text-base font-t3-medium text-foreground">API balances</Text>
-          <Text className="text-sm text-foreground-muted">
-            Account balances, counted once per API key across devices. Different keys may share an
-            account.
-          </Text>
-          {balances.map(({ id, balance, sources }) => (
-            <View key={id} className="gap-1 rounded-xl border border-border-subtle p-4">
-              <Text className="text-base font-t3-medium text-foreground">
-                {apiBalanceVendorLabel(balance.vendor)}
-              </Text>
-              {balance.unavailable ? (
-                <Text className="text-sm text-foreground-muted">
-                  {balance.unavailable === "unsupported"
-                    ? "Balance lookup is not supported with this API key."
-                    : "Balance unavailable. Refresh to retry."}
-                </Text>
-              ) : (
-                balance.balances.map((amount) => (
-                  <Text key={amount.currency} className="text-lg text-foreground">
-                    {amount.total} {amount.currency}
+          <View className="flex-row flex-wrap gap-3">
+            {balances.map(({ id, balance }) => (
+              <View
+                key={id}
+                className="min-w-40 flex-1 basis-40 gap-2 rounded-[24px] border-continuous bg-grouped-card p-4"
+              >
+                <View className="flex-row items-center gap-2">
+                  <ApiBalanceIcon vendor={balance.vendor} />
+                  <Text className="text-sm font-t3-medium text-foreground">
+                    {apiBalanceVendorLabel(balance.vendor)}
                   </Text>
-                ))
-              )}
-              <Text className="text-xs text-foreground-muted">
-                {sources.join(", ")} · Checked {new Date(balance.checkedAt).toLocaleString()}
-              </Text>
-            </View>
-          ))}
+                </View>
+                {balance.unavailable ? (
+                  <Text className="text-xs text-foreground-muted">
+                    {balance.unavailable === "unsupported"
+                      ? "Balance lookup unavailable"
+                      : "Balance unavailable. Refresh to retry."}
+                  </Text>
+                ) : (
+                  balance.balances.map((amount) => (
+                    <Text key={amount.currency} className="text-lg font-t3-medium text-foreground">
+                      {amount.total} {amount.currency}
+                    </Text>
+                  ))
+                )}
+              </View>
+            ))}
+          </View>
         </View>
       ) : null}
       {pools.map((pool, index) => {

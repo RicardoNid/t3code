@@ -159,14 +159,15 @@ The model picker offers the union of models on eligible machines, including mode
 machine supports. A thread is sent to a machine with the selected provider, model and options.
 
 Choose **Hardware** to prefer free CPU and memory, or **Usage** to prefer the largest
-remaining subscription quota. For Usage, set each account's relative capacity: a plan
-with ten times your baseline quota uses **10**, so 5% remaining compares with 50% of a
-capacity-1 plan. Set this from the actual plan quota; price ratios need not match quota ratios.
-The same account on several machines shares one capacity and its newest quota snapshot.
+remaining subscription quota. Usage requires a confirmed subscription on the destination;
+installing a provider alone does not make that machine eligible. Supported plan allowances
+are detected automatically, and replicas of an account share the newest quota snapshot.
 Weekly limits take priority over monthly or session limits; an exhausted shorter limit still
 makes that account ineligible. Comparisons require a fresh snapshot with a future reset.
-If quota periods differ or no comparable quota is known, routing falls back to hardware.
-API cash balances are not used as subscription quotas. Hardware breaks quota ties.
+For plans without a known allowance ratio, only the same plan can be compared by percentage.
+If quota periods or plan allowances cannot be compared, routing falls back to hardware among
+confirmed subscriptions. OpenCode API models use hardware routing; API cash balances never
+participate in subscription ranking. Hardware also breaks quota ties.
 
 Each machine starts at **Normal**. Choose **Prefer** or **Less often** to adjust its hardware
 ranking, or **Manual only** to exclude it from automatic selection. These are preferences,

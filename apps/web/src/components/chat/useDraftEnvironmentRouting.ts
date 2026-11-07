@@ -19,6 +19,7 @@ import { useProjects } from "../../state/entities";
 import {
   eligibleLoadBalancingProviders,
   supportsLoadBalancedSelection,
+  supportsLoadBalancedStrategy,
   type LoadBalancingSource,
 } from "@t3tools/client-runtime/load-balancing";
 import type { DraftSessionState } from "../../composerDraftStore";
@@ -32,7 +33,6 @@ interface DraftEnvironmentRoutingInput {
   readonly loadBalancingSources: readonly LoadBalancingSource[];
   readonly loadBalancingSettings: {
     readonly loadBalancingStrategy: "hardware" | "usage";
-    readonly loadBalancingCapacities: Readonly<Record<string, number>>;
     readonly loadBalancingWeights: Readonly<Record<string, number>>;
   };
   readonly modelSelection: ModelSelection | null;
@@ -74,11 +74,13 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
   const allProjects = useProjects();
   const { openScratchProject } = useScratchProject();
   const candidates = loadBalancingSources.flatMap((source) =>
-    eligibleLoadBalancingProviders(source).map((provider) => ({
-      environmentId: source.environmentId,
-      provider,
-      weight: loadBalancingSettings.loadBalancingWeights[source.environmentId] ?? 50,
-    })),
+    eligibleLoadBalancingProviders(source, loadBalancingSettings.loadBalancingStrategy).map(
+      (provider) => ({
+        environmentId: source.environmentId,
+        provider,
+        weight: loadBalancingSettings.loadBalancingWeights[source.environmentId] ?? 50,
+      }),
+    ),
   );
   const resolvedTargetAvailable =
     modelSelection !== null &&
@@ -86,7 +88,11 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
       (candidate) =>
         candidate.environmentId === draftThread?.loadBalancedEnvironmentId &&
         candidate.provider.instanceId === modelSelection.instanceId &&
-        supportsLoadBalancedSelection(candidate.provider, selectedProvider, modelSelection),
+        supportsLoadBalancedSelection(candidate.provider, selectedProvider, modelSelection) &&
+        supportsLoadBalancedStrategy(
+          candidate.provider,
+          loadBalancingSettings.loadBalancingStrategy,
+        ),
     );
   const needsLoadBalancing = automaticEnvironment && !resolvedTargetAvailable;
   const loadBalancing = useLoadBalancedEnvironment(
@@ -94,7 +100,6 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
     modelSelection,
     selectedProvider,
     loadBalancingSettings.loadBalancingStrategy,
-    loadBalancingSettings.loadBalancingCapacities,
   );
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- writes the resolved load-balanced environment into the draft store once the async pick settles
   useEffect(() => {

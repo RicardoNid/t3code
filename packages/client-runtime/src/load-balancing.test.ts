@@ -70,7 +70,6 @@ function pick(
     selection,
     now,
     strategy: "usage",
-    capacities: {},
     ...extra,
   });
 }
@@ -202,41 +201,190 @@ describe("automatic model routing", () => {
   });
 });
 
+function subscriber(environmentId: string, overrides: Partial<ServerProvider> = {}, cpuCount = 8) {
+  return candidate(
+    environmentId,
+    {
+      driver: ProviderDriverKind.make("claudeAgent"),
+      auth: { status: "authenticated", type: "pro", email: `${environmentId}@example.com` },
+      ...overrides,
+    },
+    cpuCount,
+  );
+}
+function pickSubscription(
+  candidates: readonly LoadBalancingCandidate[],
+  extra: Partial<Parameters<typeof chooseLoadBalancedProvider>[0]> = {},
+) {
+  return pick(candidates, { driver: ProviderDriverKind.make("claudeAgent"), ...extra });
+}
+
 describe("subscription quota routing", () => {
-  it("weights remaining quota by actual plan capacity and uses hardware for ties", () => {
-    const small = candidate("small", { usageLimits: limits(50) }, 16);
-    const large = candidate("large", { usageLimits: limits(95) });
-    const capacities = { [loadBalancingAccountKey("large", large.provider)]: 10 };
-    expect(pick([small, large], { capacities })?.environmentId).toBe("small");
+  it("requires a subscription on the destination instead of borrowing another machine's account", () => {
+    const paid = candidate("paid", {
+      driver: ProviderDriverKind.make("claudeAgent"),
+      auth: { status: "authenticated", type: "pro", email: "paid@example.com" },
+      usageLimits: limits(60),
+    });
+    const installedOnly = candidate(
+      "installed-only",
+      {
+        ...paid.provider,
+        auth: { status: "authenticated", email: "paid@example.com" },
+      },
+      64,
+    );
+    const input = { driver: paid.provider.driver };
+    expect(pick([installedOnly, paid], input)?.environmentId).toBe("paid");
+    expect(pick([installedOnly], input)).toBeNull();
+    for (const auth of [
+      { status: "unknown" as const, type: "pro", email: "paid@example.com" },
+      { status: "authenticated" as const, type: "free", email: "free@example.com" },
+      {
+        status: "authenticated" as const,
+        type: "apiKey",
+        label: "Claude Ultra Subscription",
+        email: "api@example.com",
+      },
+      { status: "authenticated" as const, type: "customEndpoint", email: "proxy@example.com" },
+    ])
+      expect(pick([{ ...paid, provider: { ...paid.provider, auth } }], input)).toBeNull();
     expect(
-      pick([small, { ...large, provider: { ...large.provider, usageLimits: limits(94) } }], {
-        capacities,
-      })?.environmentId,
-    ).toBe("large");
+      collectLoadBalancingProviders(
+        [
+          { environmentId: "installed-only", projectId: null, providers: [installedOnly.provider] },
+          { environmentId: "paid", projectId: null, providers: [paid.provider] },
+        ],
+        "usage",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("derives weekly capacity from the actual Claude plan without manual multipliers", () => {
+    const pro = candidate(
+      "pro",
+      {
+        driver: ProviderDriverKind.make("claudeAgent"),
+        auth: { status: "authenticated", type: "pro", email: "pro@example.com" },
+        usageLimits: limits(50),
+      },
+      16,
+    );
+    const ultra = candidate("ultra", {
+      driver: pro.provider.driver,
+      auth: {
+        status: "authenticated",
+        type: "claude_max_20x_subscription",
+        label: "Claude Ultra Subscription",
+        email: "ultra@example.com",
+      },
+      usageLimits: limits(94),
+    });
+    expect(pick([pro, ultra], { driver: pro.provider.driver })?.environmentId).toBe("ultra");
     expect(
-      pick([small, { ...large, provider: { ...large.provider, usageLimits: limits(94) } }], {
-        strategy: "hardware",
-        capacities,
+      pick([pro, { ...ultra, provider: { ...ultra.provider, usageLimits: limits(95) } }], {
+        driver: pro.provider.driver,
       })?.environmentId,
-    ).toBe("small");
+    ).toBe("pro");
+    expect(
+      pick([pro, ultra], { driver: pro.provider.driver, strategy: "hardware" })?.environmentId,
+    ).toBe("pro");
+  });
+
+  it("compares matching Codex plans but does not invent ratios between unspecified allowances", () => {
+    const plus = candidate(
+      "plus",
+      {
+        driver: ProviderDriverKind.make("codex"),
+        auth: {
+          status: "authenticated",
+          type: "chatgpt",
+          label: "ChatGPT Plus Subscription",
+          email: "plus@example.com",
+        },
+        usageLimits: limits(90),
+      },
+      64,
+    );
+    const other = candidate("other", {
+      driver: plus.provider.driver,
+      auth: { ...plus.provider.auth, email: "other@example.com" },
+      usageLimits: limits(50),
+    });
+    const input = { driver: plus.provider.driver };
+    expect(pick([plus, other], input)?.environmentId).toBe("other");
+    expect(
+      pick(
+        [
+          plus,
+          {
+            ...other,
+            provider: {
+              ...other.provider,
+              auth: { ...other.provider.auth, label: "ChatGPT Pro 200 Subscription" },
+            },
+          },
+        ],
+        input,
+      )?.environmentId,
+    ).toBe("plus");
+    expect(
+      pick(
+        [
+          {
+            ...plus,
+            provider: {
+              ...plus.provider,
+              auth: { ...plus.provider.auth, label: "ChatGPT Free Subscription" },
+            },
+          },
+        ],
+        input,
+      ),
+    ).toBeNull();
+  });
+
+  it("never ranks an API model using subscription windows or API cash balances", () => {
+    const api = candidate(
+      "api",
+      {
+        usageLimits: {
+          ...limits(99),
+          apiBalances: [
+            {
+              vendor: "deepseek",
+              credentialFingerprint: "key",
+              checkedAt,
+              balances: [{ currency: "CNY", total: "99999" }],
+            },
+          ],
+        },
+      },
+      64,
+    );
+    const other = candidate("other", { usageLimits: limits(1) });
+    expect(pick([api, other])?.environmentId).toBe("api");
   });
 
   it("uses the newest shared-account snapshot, including exhaustion on another replica", () => {
-    const auth = { status: "authenticated" as const, email: "shared@example.com" };
-    const older = candidate(
+    const auth = { status: "authenticated" as const, type: "pro", email: "shared@example.com" };
+    const older = subscriber(
       "fast",
       { auth, usageLimits: { ...limits(10), checkedAt: "2026-11-06T11:59:00Z" } },
       64,
     );
-    const newer = candidate("slow", { auth, usageLimits: limits(90) });
-    const separate = candidate("separate", { usageLimits: limits(50) });
-    expect(pick([older, newer, separate])?.environmentId).toBe("separate");
+    const newer = subscriber("slow", { auth, usageLimits: limits(90) });
+    const separate = subscriber("separate", { usageLimits: limits(50) });
+    expect(pickSubscription([older, newer, separate])?.environmentId).toBe("separate");
     expect(
-      pick([older, { ...newer, provider: { ...newer.provider, usageLimits: limits(100) } }]),
+      pickSubscription([
+        older,
+        { ...newer, provider: { ...newer.provider, usageLimits: limits(100) } },
+      ]),
     ).toBeNull();
-    expect(pick([candidate("no-snapshot", { auth }, 64), newer, separate])?.environmentId).toBe(
-      "separate",
-    );
+    expect(
+      pickSubscription([subscriber("no-snapshot", { auth }, 64), newer, separate])?.environmentId,
+    ).toBe("separate");
     expect(loadBalancingAccountKey("fast", older.provider)).toBe(
       loadBalancingAccountKey("slow", {
         ...newer.provider,
@@ -246,30 +394,31 @@ describe("subscription quota routing", () => {
   });
 
   it("blocks exhausted shorter limits and ignores limits belonging to another model family", () => {
-    const blocked = candidate("blocked", {
+    const blocked = subscriber("blocked", {
       usageLimits: { checkedAt, windows: [window(10), window(100, "session")] },
     });
-    expect(pick([blocked])).toBeNull();
-    const unrelated = candidate("usable", {
+    expect(pickSubscription([blocked])).toBeNull();
+    const unrelated = subscriber("usable", {
       usageLimits: {
         checkedAt,
-        windows: [window(50), { ...window(100, "session"), id: "go_daily" }],
+        windows: [window(50), { ...window(100, "session"), id: "seven_day_opus" }],
       },
     });
-    expect(pick([unrelated])?.environmentId).toBe("usable");
-    const claude = candidate("claude", {
+    expect(pickSubscription([unrelated])?.environmentId).toBe("usable");
+    const claude = subscriber("claude", {
       driver: ProviderDriverKind.make("claudeAgent"),
       models: [{ slug: "claude-sonnet", name: "Sonnet", isCustom: false, capabilities: {} }],
       usageLimits: { checkedAt, windows: [window(20), { ...window(100), id: "seven_day_opus" }] },
     });
     expect(
-      pick([claude], {
+      pickSubscription([claude], {
         driver: claude.provider.driver,
         selection: { ...selection, model: "claude-sonnet" },
       })?.environmentId,
     ).toBe("claude");
-    const cursor = candidate("cursor", {
+    const cursor = subscriber("cursor", {
       driver: ProviderDriverKind.make("cursor"),
+      auth: { status: "authenticated", type: "browser", email: "cursor@example.com" },
       models: ["auto", "gpt"].map((slug) => ({
         slug,
         name: slug,
@@ -285,13 +434,18 @@ describe("subscription quota routing", () => {
       },
     });
     expect(
-      pick([cursor], { driver: cursor.provider.driver, selection: { ...selection, model: "auto" } })
-        ?.environmentId,
+      pickSubscription([cursor], {
+        driver: cursor.provider.driver,
+        selection: { ...selection, model: "auto" },
+      })?.environmentId,
     ).toBe("cursor");
     expect(
-      pick([cursor], { driver: cursor.provider.driver, selection: { ...selection, model: "gpt" } }),
+      pickSubscription([cursor], {
+        driver: cursor.provider.driver,
+        selection: { ...selection, model: "gpt" },
+      }),
     ).toBeNull();
-    const antigravity = candidate("antigravity", {
+    const antigravity = subscriber("antigravity", {
       driver: ProviderDriverKind.make("antigravity"),
       models: [{ slug: "gemini-pro", name: "Gemini", isCustom: false, capabilities: {} }],
       usageLimits: {
@@ -303,7 +457,14 @@ describe("subscription quota routing", () => {
       },
     });
     expect(
+      pickSubscription([antigravity], {
+        driver: antigravity.provider.driver,
+        selection: { ...selection, model: "gemini-pro" },
+      })?.environmentId,
+    ).toBeUndefined();
+    expect(
       pick([antigravity], {
+        strategy: "hardware",
         driver: antigravity.provider.driver,
         selection: { ...selection, model: "gemini-pro" },
       })?.environmentId,
@@ -311,8 +472,8 @@ describe("subscription quota routing", () => {
   });
 
   it("does not treat unknown, stale, expired or incomparable quota as full", () => {
-    const good = candidate("known", { usageLimits: limits(90) });
-    const unknown = candidate("unknown", {}, 64);
+    const good = subscriber("known", { usageLimits: limits(90) });
+    const unknown = subscriber("unknown", {}, 64);
     for (const usageLimits of [
       undefined,
       { ...limits(0), checkedAt: "2026-11-06T11:54:59Z" },
@@ -320,21 +481,24 @@ describe("subscription quota routing", () => {
       { checkedAt, windows: [{ ...window(0), resetsAt: "2026-11-06T11:59:00Z" }] },
     ]) {
       expect(
-        pick([{ ...unknown, provider: { ...unknown.provider, usageLimits } }, good])?.environmentId,
+        pickSubscription([{ ...unknown, provider: { ...unknown.provider, usageLimits } }, good])
+          ?.environmentId,
       ).toBe("known");
     }
     expect(
-      pick([unknown, { ...good, provider: { ...good.provider, usageLimits: undefined } }])
-        ?.environmentId,
+      pickSubscription([
+        unknown,
+        { ...good, provider: { ...good.provider, usageLimits: undefined } },
+      ])?.environmentId,
     ).toBe("unknown");
     expect(
-      pick([
+      pickSubscription([
         good,
-        candidate("monthly", { usageLimits: { checkedAt, windows: [window(95, "monthly")] } }, 64),
+        subscriber("monthly", { usageLimits: { checkedAt, windows: [window(95, "monthly")] } }, 64),
       ])?.environmentId,
     ).toBe("monthly");
-    expect(pick([{ ...good, resources: null }])?.environmentId).toBe("known");
-    expect(pick([{ ...good, resources: null }], { strategy: "hardware" })).toBeNull();
-    expect(pick([{ ...good, weight: 0 }])).toBeNull();
+    expect(pickSubscription([{ ...good, resources: null }])?.environmentId).toBe("known");
+    expect(pickSubscription([{ ...good, resources: null }], { strategy: "hardware" })).toBeNull();
+    expect(pickSubscription([{ ...good, weight: 0 }])).toBeNull();
   });
 });

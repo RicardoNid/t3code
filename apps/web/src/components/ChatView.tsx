@@ -1252,7 +1252,6 @@ export default function ChatView(props: ChatViewProps) {
     loadBalancingEnabled: settings.loadBalancingEnabled,
     loadBalancingWeights: settings.loadBalancingWeights,
     loadBalancingStrategy: settings.loadBalancingStrategy,
-    loadBalancingCapacities: settings.loadBalancingCapacities,
   }));
   const automaticEnvironment = Boolean(
     clientSettingsHydrated &&
@@ -1296,7 +1295,10 @@ export default function ChatView(props: ChatViewProps) {
         Number(a.environmentId === providerEnvironmentId),
     );
   const balancedProviders = automaticEnvironment
-    ? collectLoadBalancingProviders(loadBalancingSources)
+    ? collectLoadBalancingProviders(
+        loadBalancingSources,
+        loadBalancingSettings.loadBalancingStrategy,
+      )
     : [];
   const providerStatuses = automaticEnvironment ? balancedProviders : localProviderStatuses;
   const lockedProvider = deriveLockedProvider({

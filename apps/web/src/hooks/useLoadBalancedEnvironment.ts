@@ -2,6 +2,7 @@ import { RegistryContext, useAtomValue } from "@effect/atom-react";
 import {
   chooseLoadBalancedProvider,
   supportsLoadBalancedSelection,
+  supportsLoadBalancedStrategy,
   type LoadBalancingCandidate,
 } from "@t3tools/client-runtime/load-balancing";
 import type { EnvironmentId, ModelSelection, ProviderDriverKind } from "@t3tools/contracts";
@@ -49,12 +50,13 @@ export function useLoadBalancedEnvironment(
   selection: ModelSelection | null,
   driver: ProviderDriverKind,
   strategy: "hardware" | "usage",
-  capacities: Readonly<Record<string, number>>,
 ) {
   const registry = useContext(RegistryContext);
   const matching = selection
-    ? candidates.filter((candidate) =>
-        supportsLoadBalancedSelection(candidate.provider, driver, selection),
+    ? candidates.filter(
+        (candidate) =>
+          supportsLoadBalancedSelection(candidate.provider, driver, selection) &&
+          supportsLoadBalancedStrategy(candidate.provider, strategy),
       )
     : [];
   const environmentIds = [...new Set(matching.map((candidate) => candidate.environmentId))];
@@ -80,7 +82,6 @@ export function useLoadBalancedEnvironment(
         selection,
         driver,
         strategy,
-        capacities,
         now: evaluatedAt,
       })
     : null;

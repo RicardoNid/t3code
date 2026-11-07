@@ -1,3 +1,5 @@
+import deepseekIcon from "../../../../../packages/shared/assets/model-icons/deepseek.svg";
+import kimiIcon from "../../../../../packages/shared/assets/model-icons/kimi.svg";
 import {
   CHATGPT_USAGE_URL,
   collectLimitAccounts,
@@ -638,31 +640,46 @@ export function UsageLimitsPooled({
       {balances.length > 0 ? (
         <section aria-label="API balances" className="flex flex-col gap-3">
           <h2 className="text-sm font-medium">API balances</h2>
-          <p className="text-xs text-muted-foreground">
-            Account balances, counted once per API key across devices. Different keys may share an
-            account.
-          </p>
-          {balances.map(({ id, balance, sources }) => (
-            <div key={id} className="flex flex-col gap-1 rounded-xl border p-4">
-              <span className="text-sm font-medium">{apiBalanceVendorLabel(balance.vendor)}</span>
-              {balance.unavailable ? (
-                <span className="text-sm text-muted-foreground">
-                  {balance.unavailable === "unsupported"
-                    ? "Balance lookup is not supported with this API key."
-                    : "Balance unavailable. Refresh to retry."}
-                </span>
-              ) : (
-                balance.balances.map((amount) => (
-                  <span key={amount.currency} className="text-lg tabular-nums">
-                    {amount.total} {amount.currency}
-                  </span>
-                ))
-              )}
-              <span className="text-xs text-muted-foreground">
-                {sources.join(", ")} · Checked {new Date(balance.checkedAt).toLocaleString()}
-              </span>
-            </div>
-          ))}
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,12rem),1fr))] gap-3">
+            {balances.map(({ id, balance }) => {
+              const icon =
+                balance.vendor === "deepseek"
+                  ? deepseekIcon
+                  : balance.vendor.startsWith("kimi")
+                    ? kimiIcon
+                    : null;
+              return (
+                <div
+                  key={id}
+                  className="flex min-w-0 flex-col gap-2 rounded-lg border border-border/60 p-3"
+                >
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    {icon ? (
+                      <span
+                        aria-hidden
+                        className="size-4 shrink-0 bg-current"
+                        style={{ mask: `url("${icon}") center / contain no-repeat` }}
+                      />
+                    ) : null}
+                    <span>{apiBalanceVendorLabel(balance.vendor)}</span>
+                  </div>
+                  {balance.unavailable ? (
+                    <span className="text-xs text-muted-foreground">
+                      {balance.unavailable === "unsupported"
+                        ? "Balance lookup unavailable"
+                        : "Balance unavailable. Refresh to retry."}
+                    </span>
+                  ) : (
+                    balance.balances.map((amount) => (
+                      <span key={amount.currency} className="text-lg font-medium tabular-nums">
+                        {amount.total} {amount.currency}
+                      </span>
+                    ))
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </section>
       ) : null}
       <SegmentPopoverContext value={segmentPopover}>

@@ -57,7 +57,10 @@ export interface LoadBalancingSource {
     | undefined;
 }
 
-export function eligibleLoadBalancingProviders(source: LoadBalancingSource) {
+export function eligibleLoadBalancingProviders(
+  source: LoadBalancingSource,
+  strategy: "hardware" | "usage" = "hardware",
+) {
   return source.providers
     .filter(
       (provider) =>
@@ -71,7 +74,8 @@ export function eligibleLoadBalancingProviders(source: LoadBalancingSource) {
         provider.installed &&
         provider.status !== "error" &&
         provider.auth.status !== "unauthenticated" &&
-        provider.availability !== "unavailable",
+        provider.availability !== "unavailable" &&
+        supportsLoadBalancedStrategy(provider, strategy),
     )
     .map((provider) => ({
       ...provider,
@@ -80,7 +84,10 @@ export function eligibleLoadBalancingProviders(source: LoadBalancingSource) {
     }));
 }
 
-export function collectLoadBalancingProviders(sources: readonly LoadBalancingSource[]) {
+export function collectLoadBalancingProviders(
+  sources: readonly LoadBalancingSource[],
+  strategy: "hardware" | "usage" = "hardware",
+) {
   const union = new Map<
     string,
     ServerProvider & { readonly sourceInstanceId: ProviderInstanceId }
@@ -90,7 +97,7 @@ export function collectLoadBalancingProviders(sources: readonly LoadBalancingSou
     sources.flatMap((source) => source.providers.map((provider) => provider.instanceId)),
   );
   for (const source of sources) {
-    for (const provider of eligibleLoadBalancingProviders(source)) {
+    for (const provider of eligibleLoadBalancingProviders(source, strategy)) {
       const key = `${provider.driver}:${provider.instanceId}`;
       const previous = union.get(key);
       if (previous) {
@@ -123,10 +130,64 @@ export function loadBalancingAccountKey(environmentId: string, provider: ServerP
   return `${environmentId}:${provider.instanceId}`;
 }
 
+function subscriptionPlan(provider: ServerProvider) {
+  const { auth } = provider;
+  if (auth.status !== "authenticated") return null;
+  const type = auth.type?.toLowerCase().replace(/[\s_-]+/g, "") ?? "";
+  const label = auth.label?.toLowerCase().replace(/[\s_-]+/g, "") ?? "";
+  if (/apikey|customendpoint|bedrock|authtoken/.test(type)) return null;
+  if (!auth.email?.trim() && !auth.workspaceId && !provider.usageLimits?.credentialFingerprint)
+    return null;
+  if (provider.driver === "claudeAgent") {
+    const plan = type.replace(/^claude/, "").replace(/subscription$/, "");
+    if (plan === "pro") return { id: "claude-pro", weekly: 1, session: 1 };
+    if (["max", "maxplan", "max5", "max5x"].includes(plan))
+      return { id: "claude-max", weekly: 5, session: 5 };
+    // Ultra (formerly Max 20x) has 10x Pro's weekly allowance, not 20x.
+    // https://support.claude.com/en/articles/17728952-what-is-the-ultra-plan
+    if (["ultra", "max20", "max20x"].includes(plan)) return { id: "claude-ultra", weekly: 10 };
+    if (["team", "enterprise"].includes(plan)) return { id: `claude-${plan}` };
+    return null;
+  }
+  if (provider.driver === "codex" && type === "chatgpt") {
+    if (label === "chatgptplussubscription" || label === "chatgptbusinesssubscription")
+      return { id: "codex-plus", weekly: 1, session: 1 };
+    // Codex reports plan names, not absolute allowances; unspecified tiers only compare alike.
+    const plan = label.match(
+      /^chatgpt(pro(?:100|200|500)?|businesspremium|enterprise|edu)subscription$/,
+    )?.[1];
+    return plan ? { id: `codex-${plan}` } : null;
+  }
+  if (provider.usageLimits?.unavailable) return null;
+  const windows = provider.usageLimits?.windows ?? [];
+  if (provider.driver === "opencode" && windows.some((window) => window.id === "go_weekly"))
+    return { id: "opencode-go", weekly: 1, monthly: 1, session: 1 };
+  if (
+    (provider.driver === "cursor" &&
+      windows.some(
+        (window) => window.id === "totalPercentUsed" || window.id === "apiPercentUsed",
+      )) ||
+    (provider.driver === "grok" && windows.some((window) => window.id === "subscription"))
+  )
+    return {
+      id: `${provider.driver}:${auth.email ?? provider.usageLimits?.credentialFingerprint}`,
+    };
+  return null;
+}
+
+export function supportsLoadBalancedStrategy(
+  provider: ServerProvider,
+  strategy: "hardware" | "usage",
+) {
+  return (
+    strategy === "hardware" || provider.driver === "opencode" || subscriptionPlan(provider) !== null
+  );
+}
+
 function applicableWindows(provider: ServerProvider, model: string) {
   return (provider.usageLimits?.windows ?? []).filter((window) => {
     if (provider.driver === "opencode")
-      return !window.id.startsWith("go_") || model.startsWith("opencode-go/");
+      return window.id.startsWith("go_") && model.startsWith("opencode-go/");
     if (provider.driver === "cursor")
       return (
         window.id === "totalPercentUsed" ||
@@ -146,7 +207,9 @@ function applicableWindows(provider: ServerProvider, model: string) {
   });
 }
 
-function quotaScore(provider: ServerProvider, model: string, capacity: number, now: number) {
+function quotaScore(provider: ServerProvider, model: string, now: number) {
+  const plan = subscriptionPlan(provider);
+  if (!plan) return null;
   const limits = provider.usageLimits;
   const age = now - Date.parse(limits?.checkedAt ?? "");
   if (!limits || limits.unavailable || !Number.isFinite(age) || age < -60_000 || age > 300_000)
@@ -170,7 +233,12 @@ function quotaScore(provider: ServerProvider, model: string, capacity: number, n
     if (pools.length)
       remaining.push(Math.max(...pools.map((window) => (100 - window.usedPercent) / 100)));
   }
-  return { kind, remaining: capacity * Math.min(...remaining) };
+  const capacity =
+    kind === "weekly" ? plan.weekly : kind === "session" ? plan.session : plan.monthly;
+  return {
+    kind: `${kind}:${capacity === undefined ? plan.id : "normalized"}`,
+    remaining: (capacity ?? 1) * Math.min(...remaining),
+  };
 }
 
 export interface LoadBalancingCandidate {
@@ -237,14 +305,14 @@ export function chooseLoadBalancedProvider(input: {
   readonly driver: ProviderDriverKind;
   readonly selection: ModelSelection;
   readonly strategy: "hardware" | "usage";
-  readonly capacities: Readonly<Record<string, number>>;
   readonly now: number;
 }) {
   const matching = input.candidates.filter(
     ({ provider, weight }) =>
       weight > 0 &&
       Number.isFinite(weight) &&
-      supportsLoadBalancedSelection(provider, input.driver, input.selection),
+      supportsLoadBalancedSelection(provider, input.driver, input.selection) &&
+      supportsLoadBalancedStrategy(provider, input.strategy),
   );
   const latest = new Map<string, ServerProvider>();
   for (const candidate of matching) {
@@ -269,12 +337,9 @@ export function chooseLoadBalancedProvider(input: {
     )
     .map((candidate, index) => {
       const accountKey = loadBalancingAccountKey(candidate.environmentId, candidate.provider);
-      const rawCapacity = input.capacities[accountKey] ?? 1;
-      const capacity = Number.isFinite(rawCapacity) && rawCapacity > 0 ? rawCapacity : 1;
       const quota = quotaScore(
         latest.get(accountKey) ?? candidate.provider,
         input.selection.model,
-        capacity,
         input.now,
       );
       // Reuse exactly the hardware policy, including its freshness and saturation guards.

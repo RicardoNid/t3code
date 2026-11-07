@@ -151,7 +151,6 @@ it("routes a picked remote-only model to its real instance and preserves draft c
       loadBalancingSettings: {
         loadBalancingStrategy: "hardware",
         loadBalancingWeights: {},
-        loadBalancingCapacities: {},
       },
       modelSelection: selection ?? null,
       selectedProvider: driver,
