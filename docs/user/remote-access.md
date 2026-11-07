@@ -160,12 +160,15 @@ machine supports. A thread is sent to a machine with the selected provider, mode
 
 Choose **Hardware** to prefer free CPU and memory, or **Usage** to prefer the largest
 remaining subscription quota. Usage requires a confirmed subscription on the destination;
-installing a provider alone does not make that machine eligible. Supported plan allowances
-are detected automatically, and replicas of an account share the newest quota snapshot.
+installing a provider alone does not make that machine eligible. Recognized subscription prices
+are applied automatically, and replicas of an account share the newest quota snapshot.
 Weekly limits take priority over monthly or session limits; an exhausted shorter limit still
 makes that account ineligible. Comparisons require a fresh snapshot with a future reset.
-For plans without a known allowance ratio, only the same plan can be compared by percentage.
-If quota periods or plan allowances cannot be compared, routing falls back to hardware among
+Ranking uses the monthly plan price multiplied by the remaining quota fraction, as an
+approximation of remaining capacity for the selected model. A $200 plan at 5% ties a $20 plan
+at 50%; hardware breaks the tie. This does not claim an actual quota ratio from the vendor.
+For plans without a recognized price, only identical plans are compared by percentage.
+If quota periods or prices cannot be compared, routing falls back to hardware among
 confirmed subscriptions. OpenCode API models use hardware routing; API cash balances never
 participate in subscription ranking. Hardware also breaks quota ties.
 

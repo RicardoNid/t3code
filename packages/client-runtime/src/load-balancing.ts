@@ -140,28 +140,27 @@ function subscriptionPlan(provider: ServerProvider) {
     return null;
   if (provider.driver === "claudeAgent") {
     const plan = type.replace(/^claude/, "").replace(/subscription$/, "");
-    if (plan === "pro") return { id: "claude-pro", weekly: 1, session: 1 };
+    if (plan === "pro") return { id: "claude-pro", priceUsd: 20 };
     if (["max", "maxplan", "max5", "max5x"].includes(plan))
-      return { id: "claude-max", weekly: 5, session: 5 };
-    // Ultra (formerly Max 20x) has 10x Pro's weekly allowance, not 20x.
-    // https://support.claude.com/en/articles/17728952-what-is-the-ultra-plan
-    if (["ultra", "max20", "max20x"].includes(plan)) return { id: "claude-ultra", weekly: 10 };
+      return { id: "claude-max", priceUsd: 100 };
+    if (["ultra", "max20", "max20x"].includes(plan)) return { id: "claude-ultra", priceUsd: 200 };
     if (["team", "enterprise"].includes(plan)) return { id: `claude-${plan}` };
     return null;
   }
   if (provider.driver === "codex" && type === "chatgpt") {
     if (label === "chatgptplussubscription" || label === "chatgptbusinesssubscription")
-      return { id: "codex-plus", weekly: 1, session: 1 };
-    // Codex reports plan names, not absolute allowances; unspecified tiers only compare alike.
+      return { id: "codex-plus", priceUsd: 20 };
     const plan = label.match(
       /^chatgpt(pro(?:100|200|500)?|businesspremium|enterprise|edu)subscription$/,
     )?.[1];
-    return plan ? { id: `codex-${plan}` } : null;
+    if (!plan) return null;
+    const price = plan.match(/^pro(100|200|500)$/)?.[1];
+    return { id: `codex-${plan}`, ...(price ? { priceUsd: Number(price) } : {}) };
   }
   if (provider.usageLimits?.unavailable) return null;
   const windows = provider.usageLimits?.windows ?? [];
   if (provider.driver === "opencode" && windows.some((window) => window.id === "go_weekly"))
-    return { id: "opencode-go", weekly: 1, monthly: 1, session: 1 };
+    return { id: "opencode-go" };
   if (
     (provider.driver === "cursor" &&
       windows.some(
@@ -233,11 +232,9 @@ function quotaScore(provider: ServerProvider, model: string, now: number) {
     if (pools.length)
       remaining.push(Math.max(...pools.map((window) => (100 - window.usedPercent) / 100)));
   }
-  const capacity =
-    kind === "weekly" ? plan.weekly : kind === "session" ? plan.session : plan.monthly;
   return {
-    kind: `${kind}:${capacity === undefined ? plan.id : "normalized"}`,
-    remaining: (capacity ?? 1) * Math.min(...remaining),
+    kind: `${kind}:${plan.priceUsd === undefined ? plan.id : "price-weighted"}`,
+    remaining: (plan.priceUsd ?? 1) * Math.min(...remaining),
   };
 }
 

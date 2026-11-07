@@ -87,7 +87,7 @@ export function LoadBalancingSettings({
         title="Routing strategy"
         description={
           settings.loadBalancingStrategy === "usage"
-            ? "Prefer remaining quota on confirmed subscription accounts. Known plan allowances are applied automatically; hardware breaks ties. API models use hardware."
+            ? "Prefer remaining quota on confirmed subscription accounts. Recognized plan prices weight the remaining quota automatically; hardware breaks ties. API models use hardware."
             : "Prefer available CPU and memory, weighted by each machine's preference. Only machines supporting the selected model are eligible."
         }
         control={

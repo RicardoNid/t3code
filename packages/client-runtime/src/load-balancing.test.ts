@@ -291,7 +291,7 @@ describe("subscription quota routing", () => {
     ).toBe("pro");
   });
 
-  it("compares matching Codex plans but does not invent ratios between unspecified allowances", () => {
+  it("weights the selected model by subscription price without requiring published quota ratios", () => {
     const plus = candidate(
       "plus",
       {
@@ -327,7 +327,32 @@ describe("subscription quota routing", () => {
         ],
         input,
       )?.environmentId,
-    ).toBe("plus");
+    ).toBe("other");
+    for (const [price, used] of [
+      [100, 90],
+      [200, 95],
+      [500, 98],
+    ]) {
+      const baseline = { ...plus, provider: { ...plus.provider, usageLimits: limits(50) } };
+      const priced = {
+        ...other,
+        provider: {
+          ...other.provider,
+          auth: { ...other.provider.auth, label: `ChatGPT Pro ${price} Subscription` },
+          usageLimits: limits(used!),
+        },
+      };
+      expect(pick([baseline, priced], input)?.environmentId).toBe("plus");
+      expect(
+        pick(
+          [
+            baseline,
+            { ...priced, provider: { ...priced.provider, usageLimits: limits(used! - 1) } },
+          ],
+          input,
+        )?.environmentId,
+      ).toBe("other");
+    }
     expect(
       pick(
         [
