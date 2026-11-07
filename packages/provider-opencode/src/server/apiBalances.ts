@@ -12,6 +12,7 @@ import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { readConfiguredApiProviders } from "./apiConfig.ts";
 import { readStoredApiKey } from "./apiCredentials.ts";
 
 const ApiAuth = Schema.Struct({ type: Schema.Literal("api"), key: Schema.String });
@@ -109,14 +110,40 @@ export const readOpenCodeApiBalances = Effect.fn("OpenCode.readApiBalances")(fun
     const credentials: { vendor: (typeof vendors)[number]; key: string; fingerprint: string }[] =
       [];
     const seen = new Set<string>();
-    for (const vendor of vendors) {
-      const inline = decodeApiAuth(auth[vendor.id]);
-      const stored = !hasDatabase
-        ? undefined
-        : yield* readStoredApiKey(databasePath, vendor.id, vendor.origin);
-      // The selected v2 credential supersedes the legacy auth.json imported on migration.
+    const configured = yield* readConfiguredApiProviders(env);
+    const matchesEndpoint = (baseURL: string | null, vendor: (typeof vendors)[number]) =>
+      baseURL !== null &&
+      [vendor.origin, `${vendor.origin}/v1`].includes(baseURL.replace(/\/+$/, ""));
+    const sources = [
+      ...vendors.map((vendor) => ({
+        vendor,
+        id: vendor.id as string,
+        config: configured.get(vendor.id),
+      })),
+      ...[...configured].flatMap(([id, config]) => {
+        if (vendors.some((vendor) => vendor.id === id)) return [];
+        const vendor = vendors.find(
+          (vendor) => config.baseURL !== undefined && matchesEndpoint(config.baseURL, vendor),
+        );
+        return vendor ? [{ vendor, id, config }] : [];
+      }),
+    ];
+    for (const { vendor, id, config } of sources) {
+      if (config?.baseURL !== undefined && !matchesEndpoint(config.baseURL, vendor)) continue;
+      const inline = decodeApiAuth(auth[id]);
+      const stored =
+        config?.apiKey !== undefined || !hasDatabase
+          ? undefined
+          : yield* readStoredApiKey(databasePath, id, vendor.origin);
+      // An explicit config key overrides stored authentication; an empty reference must not fall back.
       const key = (
-        stored === undefined ? (Option.isSome(inline) ? inline.value.key : undefined) : stored
+        config?.apiKey !== undefined
+          ? config.apiKey
+          : stored === undefined
+            ? Option.isSome(inline)
+              ? inline.value.key
+              : undefined
+            : stored
       )?.trim();
       if (!key) continue;
       const fingerprint = yield* digest

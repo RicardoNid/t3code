@@ -208,8 +208,15 @@ Kimi API credentials saved by local OpenCode instances. DeepSeek reports its
 balance currency; Kimi's China and international accounts use CNY and USD
 respectively. Kimi Coding subscription keys are separate from Kimi API accounts.
 
-Each server reads its own OpenCode `auth.json` or selected OpenCode 2 credential
-and queries the vendor's official endpoint. External OpenCode servers do not use
+Each server reads its own OpenCode global `opencode.json` / `opencode.jsonc`,
+explicit `OPENCODE_CONFIG` / `OPENCODE_CONFIG_DIR` / `OPENCODE_CONFIG_CONTENT`
+overrides, `auth.json`, or selected OpenCode 2 credential and queries the vendor's
+official endpoint. Configured `provider.options.apiKey` and `providers.settings.apiKey`
+support environment and file references, including files relative to their config.
+Custom provider names such as `moonshot` are recognized by their official base URL.
+Explicit config keys take priority over stored credentials; a missing reference
+is skipped and does not fall back to an older key. Project-only
+config files are not scanned by this environment-wide balance view. External OpenCode servers do not use
 the T3 host's credentials. Keys stay on their server; only a fingerprint and the
 balance result reach the client. Refresh limits to update the balances.
 

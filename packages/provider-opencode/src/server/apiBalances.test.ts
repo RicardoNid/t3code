@@ -17,7 +17,11 @@ import { readOpenCodeUsageLimits } from "./usageLimits.ts";
 const input = (auth: Record<string, unknown>) => ({
   enabled: true,
   serverUrl: "",
-  environment: { OPENCODE_AUTH_CONTENT: JSON.stringify(auth) },
+  environment: {
+    HOME: "/nonexistent-opencode-test-home",
+    XDG_CONFIG_HOME: "/nonexistent-opencode-test-config",
+    OPENCODE_AUTH_CONTENT: JSON.stringify(auth),
+  },
 });
 const key = { type: "api", key: "sk-fake-only-for-test" };
 const services = Layer.mergeAll(
@@ -205,7 +209,12 @@ it.effect.each([
     const balances = yield* readOpenCodeApiBalances({
       enabled: true,
       serverUrl: "",
-      environment: { XDG_DATA_HOME: home, OPENCODE_DB: "selected.db" },
+      environment: {
+        HOME: home,
+        XDG_CONFIG_HOME: `${home}/config`,
+        XDG_DATA_HOME: home,
+        OPENCODE_DB: "selected.db",
+      },
     }).pipe(
       Effect.provideService(
         HttpClient.HttpClient,
@@ -275,8 +284,124 @@ it.effect("does not use a legacy key when the selected credential database is un
     const balances = yield* readOpenCodeApiBalances({
       enabled: true,
       serverUrl: "",
-      environment: { XDG_DATA_HOME: home },
+      environment: { HOME: home, XDG_CONFIG_HOME: `${home}/config`, XDG_DATA_HOME: home },
     });
     NodeAssert.deepEqual(balances, []);
   }).pipe(Effect.scoped, Effect.provide(services)),
+);
+
+it.effect(
+  "reads configured SDK keys and custom Moonshot file references without querying gateways",
+  () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const home = yield* fs.makeTempDirectoryScoped();
+      yield* fs.makeDirectory(`${home}/config/opencode`, { recursive: true });
+      yield* fs.writeFileString(`${home}/kimi-key`, "fake-kimi-config-key\n");
+      yield* fs.writeFileString(
+        `${home}/config/opencode/opencode.jsonc`,
+        `{
+      // The global config may contain credentials rather than auth.json.
+      "provider": {
+        "deepseek": { "npm": "@ai-sdk/deepseek", "options": { "apiKey": "{env:DEEPSEEK_API_KEY}" } },
+        "moonshot": { "npm": "@ai-sdk/openai-compatible", "options": {
+          "baseURL": "https://api.moonshot.cn/v1", "apiKey": "{file:../../kimi-key}",
+        } },
+        "moonshotai-cn": { "options": { "apiKey": "{file:~/kimi-key}" } },
+        "gateway": { "options": { "baseURL": "https://gateway.test/v1", "apiKey": "gateway-key" } },
+      },
+    }`,
+      );
+      const requests: string[] = [];
+      const balances = yield* readOpenCodeApiBalances({
+        enabled: true,
+        serverUrl: "",
+        environment: {
+          HOME: home,
+          XDG_CONFIG_HOME: `${home}/config`,
+          XDG_DATA_HOME: `${home}/data`,
+          DEEPSEEK_API_KEY: "fake-deepseek-config-key",
+        },
+      }).pipe(
+        Effect.provideService(
+          HttpClient.HttpClient,
+          HttpClient.make((request) => {
+            requests.push(request.url);
+            NodeAssert.equal(
+              request.headers.authorization,
+              request.url.includes("deepseek")
+                ? "Bearer fake-deepseek-config-key"
+                : "Bearer fake-kimi-config-key",
+            );
+            return Effect.succeed(
+              HttpClientResponse.fromWeb(
+                request,
+                Response.json(
+                  request.url.includes("deepseek")
+                    ? {
+                        is_available: true,
+                        balance_infos: [{ currency: "CNY", total_balance: "1.25" }],
+                      }
+                    : { code: 0, status: true, data: { available_balance: 2.5 } },
+                ),
+              ),
+            );
+          }),
+        ),
+      );
+      NodeAssert.deepEqual(requests.sort(), [
+        "https://api.deepseek.com/user/balance",
+        "https://api.moonshot.cn/v1/users/me/balance",
+      ]);
+      NodeAssert.deepEqual(balances.map((balance) => balance.vendor).sort(), [
+        "deepseek",
+        "kimi-cn",
+      ]);
+      NodeAssert.ok(!JSON.stringify(balances).includes("config-key"));
+      yield* fs.makeDirectory(`${home}/data/opencode`, { recursive: true });
+      yield* fs.writeFileString(
+        `${home}/data/opencode/auth.json`,
+        JSON.stringify({ deepseek: key }),
+      );
+      for (const options of [
+        { baseURL: "https://gateway.test/v1", apiKey: "gateway-key" },
+        { apiKey: "{file:missing-key}" },
+      ]) {
+        NodeAssert.deepEqual(
+          yield* readOpenCodeApiBalances({
+            enabled: true,
+            serverUrl: "",
+            environment: {
+              HOME: home,
+              XDG_CONFIG_HOME: `${home}/config`,
+              XDG_DATA_HOME: `${home}/data`,
+              OPENCODE_CONFIG_CONTENT: JSON.stringify({
+                providers: {
+                  deepseek: { settings: options },
+                  moonshot: { settings: { apiKey: "{env:MISSING_KEY}" } },
+                  "moonshotai-cn": { settings: { apiKey: "{env:MISSING_KEY}" } },
+                },
+              }),
+            },
+          }),
+          [],
+        );
+      }
+      yield* fs.writeFileString(
+        `${home}/config/opencode/opencode.jsonc`,
+        '{"provider": "malformed-secret-config-key"}',
+      );
+      NodeAssert.deepEqual(
+        yield* readOpenCodeApiBalances({
+          enabled: true,
+          serverUrl: "",
+          environment: {
+            HOME: home,
+            XDG_CONFIG_HOME: `${home}/config`,
+            XDG_DATA_HOME: `${home}/data`,
+          },
+        }),
+        [],
+      );
+    }).pipe(Effect.scoped, Effect.provide(services)),
 );
