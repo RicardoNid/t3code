@@ -1160,7 +1160,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Load balancing",
     to: "/settings/connections",
     searchTerms: [
-      "automatic machine environment resources cpu memory capacity preference weight shared projects",
+      "automatic machine environment resources cpu memory capacity preference weight shared projects usage quota subscription model union",
     ],
   },
   {

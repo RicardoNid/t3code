@@ -104,7 +104,11 @@ import {
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
-import { formatModelSlugName, resolveSelectableModel } from "@t3tools/shared/model";
+import {
+  createModelSelection,
+  formatModelSlugName,
+  resolveSelectableModel,
+} from "@t3tools/shared/model";
 import { projectScriptCwd, resolveProjectScripts } from "@t3tools/shared/projectScripts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { resolveThreadReferenceCopyTarget } from "@t3tools/client-runtime/thread-reference";
@@ -216,6 +220,7 @@ import {
 } from "../sidebarPendingFileDropStore";
 import {
   composerDraftHasUserContent,
+  deriveEffectiveComposerModelState,
   type ComposerFileAttachment,
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
@@ -227,7 +232,8 @@ import { collectInlineContextIds } from "../lib/composerContextReferences";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useKnownTerminalSessions, useThreadRunningTerminalIds } from "../state/terminalSessions";
 import { useEnvironmentQuery } from "../state/query";
-import { useEnvironmentScope } from "~/state/session";
+import { useEnvironmentScope, useEnvironmentsWithScope } from "~/state/session";
+import { collectLoadBalancingProviders } from "@t3tools/client-runtime/load-balancing";
 import {
   primaryServerAvailableEditorsAtom,
   primaryServerKeybindingsAtom,
@@ -1214,7 +1220,7 @@ export default function ChatView(props: ChatViewProps) {
     : (primaryEnvironment?.serverConfig ?? null);
   const providerEnvironmentId = (activeThread ? activeEnvironment : primaryEnvironment)
     ?.environmentId;
-  const providerStatuses =
+  const localProviderStatuses =
     (providerEnvironmentId === undefined
       ? undefined
       : providersByEnvironment.get(providerEnvironmentId)) ?? EMPTY_PROVIDERS;
@@ -1223,13 +1229,6 @@ export default function ChatView(props: ChatViewProps) {
     activeThread?.modelSelection.instanceId ??
     activeProjectDefaultModelSelection?.instanceId ??
     null;
-  const lockedProvider = deriveLockedProvider({
-    thread: activeThread,
-    selectedProvider: selectedProviderByThreadId,
-    threadProvider,
-    providers: providerStatuses,
-  });
-  const modelPickerLockedProvider = supportsProviderSwitchingViaHandoff ? null : lockedProvider;
   const pullRequestsCapabilityKnown = serverConfig !== null;
   const supportsPullRequests = serverConfig !== null;
   const attachmentEnvironmentConfig = environmentById.get(environmentId)?.serverConfig ?? null;
@@ -1252,18 +1251,61 @@ export default function ChatView(props: ChatViewProps) {
   const loadBalancingSettings = useClientSettings((settings) => ({
     loadBalancingEnabled: settings.loadBalancingEnabled,
     loadBalancingWeights: settings.loadBalancingWeights,
+    loadBalancingStrategy: settings.loadBalancingStrategy,
+    loadBalancingCapacities: settings.loadBalancingCapacities,
   }));
   const automaticEnvironment = Boolean(
     clientSettingsHydrated &&
     draftId &&
     !envLocked &&
     canAutoBalanceEnvironments &&
+    multipleModelSelections === null &&
     loadBalancingSettings.loadBalancingEnabled &&
     draftThread?.environmentSelection !== "manual" &&
     (!composerHasAttachments || Boolean(draftThread?.loadBalancedEnvironmentId)) &&
     (!draftThread?.branch || draftThread.environmentSelection === "auto") &&
     !draftThread?.worktreePath,
   );
+  const balancingPermissions = useEnvironmentsWithScope(
+    logicalProjectEnvironments,
+    AuthOrchestrationOperateScope,
+  );
+  const loadBalancingSources = logicalProjectEnvironments
+    .flatMap((candidate) => {
+      const environment = environmentById.get(candidate.environmentId);
+      if (
+        !balancingPermissions.has(candidate.environmentId) ||
+        environment?.connection.phase !== "connected" ||
+        (loadBalancingSettings.loadBalancingWeights[candidate.environmentId] ?? 50) <= 0 ||
+        !referencedThreadContexts.every(
+          (record) => record.environmentId === candidate.environmentId,
+        )
+      )
+        return [];
+      return [
+        {
+          ...candidate,
+          providers: providersByEnvironment.get(candidate.environmentId) ?? EMPTY_PROVIDERS,
+          settings: environment.serverConfig?.settings,
+        },
+      ];
+    })
+    .sort(
+      (a, b) =>
+        Number(b.environmentId === providerEnvironmentId) -
+        Number(a.environmentId === providerEnvironmentId),
+    );
+  const balancedProviders = automaticEnvironment
+    ? collectLoadBalancingProviders(loadBalancingSources)
+    : [];
+  const providerStatuses = automaticEnvironment ? balancedProviders : localProviderStatuses;
+  const lockedProvider = deriveLockedProvider({
+    thread: activeThread,
+    selectedProvider: selectedProviderByThreadId,
+    threadProvider,
+    providers: providerStatuses,
+  });
+  const modelPickerLockedProvider = supportsProviderSwitchingViaHandoff ? null : lockedProvider;
   const autoUpdateEnvironments = automaticEnvironment
     ? logicalProjectEnvironments.flatMap(({ environmentId }) => {
         const environment = environmentById.get(environmentId);
@@ -1284,6 +1326,7 @@ export default function ChatView(props: ChatViewProps) {
     providerStatuses,
     settings,
     activeProject?.id ?? null,
+    automaticEnvironment,
   );
   const activeThreadModelInstanceId = activeThread?.modelSelection.instanceId;
   const { selectedProviderEntry, requestedDriverKind } = resolveComposerProviderSelection({
@@ -1300,6 +1343,31 @@ export default function ChatView(props: ChatViewProps) {
   const selectedProvider = selectedProviderEntry?.driverKind ?? requestedDriverKind;
   const activeProviderInstanceId = selectedProviderEntry?.instanceId ?? null;
   const activeProviderStatus = selectedProviderEntry?.snapshot ?? null;
+  const routingModelState = deriveEffectiveComposerModelState({
+    draft: composerSelectedModelSelection
+      ? {
+          activeProvider: composerActiveProvider,
+          modelSelectionByProvider: {
+            [composerSelectedModelSelection.instanceId]: composerSelectedModelSelection,
+          },
+        }
+      : null,
+    providers: providerStatuses,
+    selectedProvider,
+    selectedInstanceId: activeProviderInstanceId,
+    requestedInstanceId: selectedProviderByThreadId,
+    threadModelSelection: activeThread?.modelSelection,
+    projectModelSelection: activeProjectDefaultModelSelection,
+    settings,
+  });
+  const routingModelSelection = activeProviderInstanceId
+    ? createModelSelection(
+        balancedProviders.find((provider) => provider.instanceId === activeProviderInstanceId)
+          ?.sourceInstanceId ?? activeProviderInstanceId,
+        routingModelState.selectedModel,
+        routingModelState.modelOptions?.[activeProviderInstanceId],
+      )
+    : null;
   const { enabled: interactionModeEnabled, interactionMode } = resolveComposerInteractionMode({
     planModeEnabled: settings.planModeEnabled,
     provider: activeProviderStatus,
@@ -1786,11 +1854,9 @@ export default function ChatView(props: ChatViewProps) {
     envLocked,
     automaticEnvironment,
     logicalProjectEnvironments,
-    environmentById,
-    providersByEnvironment,
+    loadBalancingSources,
     loadBalancingSettings,
-    referencedThreadContexts,
-    activeProviderInstanceId,
+    modelSelection: routingModelSelection,
     selectedProvider,
     composerHasAttachments,
     activeProjectKey,
@@ -2842,6 +2908,8 @@ export default function ChatView(props: ChatViewProps) {
     interactionMode,
     interactionModeEnabled,
     isLocalDraftThread,
+    automaticEnvironment,
+    composerHasAttachments,
     canOverrideServerThreadEnvMode,
     setPendingServerThreadEnvModeEntry,
     setPendingServerThreadStartFromOriginByThreadId,
@@ -3578,8 +3646,9 @@ export default function ChatView(props: ChatViewProps) {
                               reportedModelSelection={reportedModelSelection}
                               multipleModelSelections={multipleModelSelections}
                               supportsMultipleModels={
+                                !automaticEnvironment &&
                                 serverConfig?.environment.capabilities.requiredWorktreeBootstrap ===
-                                true
+                                  true
                               }
                               onMultipleModelSelectionsChange={setMultipleModelSelectionsStable}
                               composerRef={composerRef}
@@ -3668,6 +3737,7 @@ export default function ChatView(props: ChatViewProps) {
                               interactionMode={interactionMode}
                               lockedProvider={modelPickerLockedProvider}
                               providerStatuses={providerStatuses as ServerProvider[]}
+                              providerSettingsApplied={automaticEnvironment}
                               providerCatalogKnown={serverConfig !== null}
                               activeProjectDefaultModelSelection={
                                 activeProjectDefaultModelSelection

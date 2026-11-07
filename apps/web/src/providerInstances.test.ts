@@ -8,6 +8,7 @@ import {
 import { describe, expect, it } from "vite-plus/test";
 import {
   applyProviderInstanceSettings,
+  providerInstanceEntriesFor,
   brandProviderInstanceEntries,
   deriveProviderEntriesByEnvironment,
   deriveProviderInstanceEntries,
@@ -93,6 +94,34 @@ describe("applyProviderInstanceSettings", () => {
     );
 
     expect(entry?.enabled).toBe(false);
+    expect(
+      providerInstanceEntriesFor(
+        [entries[0]!.snapshot],
+        {
+          providerInstances: {
+            [ProviderInstanceId.make("codex")]: {
+              driver: ProviderDriverKind.make("codex"),
+              enabled: false,
+            },
+          },
+          projectSettingsOverrides: {},
+        },
+        null,
+        true,
+      )[0]?.enabled,
+    ).toBe(true);
+    const remote = provider({
+      provider: ProviderDriverKind.make("opencode"),
+      instanceId: "remote-only",
+    });
+    expect(
+      providerInstanceEntriesFor(
+        [remote],
+        { providerInstances: {}, projectSettingsOverrides: {} },
+        null,
+        true,
+      )[0]?.enabled,
+    ).toBe(true);
   });
 
   it.each(["constructor", "toString"])(

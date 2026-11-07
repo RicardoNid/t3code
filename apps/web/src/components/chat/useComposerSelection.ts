@@ -43,6 +43,8 @@ interface ComposerSelectionInput {
   readonly interactionMode: ProviderInteractionMode;
   readonly interactionModeEnabled: boolean;
   readonly isLocalDraftThread: boolean;
+  readonly automaticEnvironment?: boolean;
+  readonly composerHasAttachments?: boolean;
   readonly canOverrideServerThreadEnvMode: boolean;
   readonly setPendingServerThreadEnvModeEntry: Dispatch<
     SetStateAction<{ readonly threadId: ThreadId; readonly mode: DraftThreadEnvMode } | null>
@@ -211,6 +213,9 @@ export function useComposerSelection(input: ComposerSelectionInput) {
       { explicit: true, replaceOptions: true },
     );
     setStickyComposerModelSelection(nextModelSelection);
+    if (isLocalDraftThread && input.automaticEnvironment && !input.composerHasAttachments) {
+      setDraftThreadContext(composerDraftTarget, { loadBalancedEnvironmentId: null });
+    }
     if (options?.focusComposer !== false) scheduleComposerFocus();
   };
   const onProviderModelSelectStable = useStableCallback(onProviderModelSelect);

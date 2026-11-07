@@ -28,6 +28,7 @@ const NO_PROVIDER_MODELS: ServerProvider["models"] = [];
  */
 export function useComposerProviderModel(
   input: Omit<Parameters<typeof resolveComposerProviderSelection>[0], "entries"> & {
+    readonly providerSettingsApplied?: boolean | undefined;
     readonly providerStatuses: ReadonlyArray<ServerProvider>;
     readonly settings: UnifiedSettings;
     readonly activeProjectId: ProjectId | null;
@@ -54,6 +55,7 @@ export function useComposerProviderModel(
     providerStatuses,
     settings,
     activeProjectId,
+    input.providerSettingsApplied,
   );
   const selection = resolveComposerProviderSelection({
     entries: providerInstanceEntries,

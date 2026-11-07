@@ -1,6 +1,10 @@
 import { RegistryContext, useAtomValue } from "@effect/atom-react";
-import { chooseLoadBalancedEnvironment } from "@t3tools/client-runtime/load-balancing";
-import type { EnvironmentId } from "@t3tools/contracts";
+import {
+  chooseLoadBalancedProvider,
+  supportsLoadBalancedSelection,
+  type LoadBalancingCandidate,
+} from "@t3tools/client-runtime/load-balancing";
+import type { EnvironmentId, ModelSelection, ProviderDriverKind } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 import { useContext } from "react";
 
@@ -41,10 +45,19 @@ const hostResourcesAtom = Atom.family((environmentIdsKey: string) =>
 
 /** Only mounted for unresolved automatic drafts, so idle clients do not poll hosts. */
 export function useLoadBalancedEnvironment(
-  environmentIds: readonly EnvironmentId[],
-  weights: Readonly<Record<string, number>>,
+  candidates: readonly Omit<LoadBalancingCandidate, "resources" | "receivedAt">[],
+  selection: ModelSelection | null,
+  driver: ProviderDriverKind,
+  strategy: "hardware" | "usage",
+  capacities: Readonly<Record<string, number>>,
 ) {
   const registry = useContext(RegistryContext);
+  const matching = selection
+    ? candidates.filter((candidate) =>
+        supportsLoadBalancedSelection(candidate.provider, driver, selection),
+      )
+    : [];
+  const environmentIds = [...new Set(matching.map((candidate) => candidate.environmentId))];
   const refresh = (ids: readonly EnvironmentId[]) => {
     for (const environmentId of ids) {
       registry.refresh(serverEnvironment.hostResources({ environmentId, input: {} }));
@@ -52,17 +65,31 @@ export function useLoadBalancedEnvironment(
   };
   const { evaluatedAt, resources } = useAtomValue(hostResourcesAtom(environmentIds.join("\n")));
   const pending = resources.some((resource) => resource.pending);
-  const environmentId = chooseLoadBalancedEnvironment(
-    resources.map((resource) => ({
-      ...resource,
-      weight: weights[resource.environmentId] ?? 50,
-    })),
-    evaluatedAt,
-  ) as EnvironmentId | null;
+  const selected = selection
+    ? chooseLoadBalancedProvider({
+        candidates: matching.map((candidate) => {
+          const resource = resources.find(
+            (resource) => resource.environmentId === candidate.environmentId,
+          );
+          return {
+            ...candidate,
+            resources: resource?.resources ?? null,
+            receivedAt: resource?.receivedAt ?? 0,
+          };
+        }),
+        selection,
+        driver,
+        strategy,
+        capacities,
+        now: evaluatedAt,
+      })
+    : null;
+  const environmentId = (selected?.environmentId ?? null) as EnvironmentId | null;
   return {
     refresh,
     pending,
     environmentId,
-    failed: !pending && environmentId === null && resources.some((resource) => resource.failed),
+    instanceId: selected?.instanceId ?? null,
+    failed: !pending && environmentId === null,
   };
 }

@@ -158,10 +158,14 @@ export function providerInstanceEntriesFor(
   providers: ReadonlyArray<ServerProvider>,
   settings: Pick<ServerSettings, "providerInstances" | "projectSettingsOverrides">,
   projectId: ProjectId | null,
+  snapshotEnabled = false,
 ): ReadonlyArray<ProviderInstanceEntry> {
   return pipe(
     deriveProviderInstanceEntries(providers),
-    (entries) => applyProviderInstanceSettings(entries, settings, projectId),
+    (entries) =>
+      snapshotEnabled
+        ? brandProviderInstanceEntries(entries, settings)
+        : applyProviderInstanceSettings(entries, settings, projectId),
     sortProviderInstanceEntries,
   );
 }

@@ -5,9 +5,7 @@ import { useStableCallback } from "../../hooks/useStableCallback";
 import {
   type EnvironmentId,
   type ProviderDriverKind,
-  ProviderInstanceId,
-  resolveProjectProviderInstanceEnabled,
-  type ThreadContextRecord,
+  type ModelSelection,
 } from "@t3tools/contracts";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -17,8 +15,12 @@ import {
   selectProjectGroupingSettings,
 } from "@t3tools/client-runtime/state/project-grouping";
 import { useComposerDraftStore, DraftId } from "../../composerDraftStore";
-import { type EnvironmentPresentation, useEnvironmentProviders } from "../../state/environments";
 import { useProjects } from "../../state/entities";
+import {
+  eligibleLoadBalancingProviders,
+  supportsLoadBalancedSelection,
+  type LoadBalancingSource,
+} from "@t3tools/client-runtime/load-balancing";
 import type { DraftSessionState } from "../../composerDraftStore";
 
 interface DraftEnvironmentRoutingInput {
@@ -27,13 +29,13 @@ interface DraftEnvironmentRoutingInput {
   readonly envLocked: boolean;
   readonly automaticEnvironment: boolean;
   readonly logicalProjectEnvironments: ReturnType<typeof useLogicalProjectEnvironments>;
-  readonly environmentById: ReadonlyMap<EnvironmentId, EnvironmentPresentation>;
-  readonly providersByEnvironment: ReturnType<typeof useEnvironmentProviders>;
+  readonly loadBalancingSources: readonly LoadBalancingSource[];
   readonly loadBalancingSettings: {
+    readonly loadBalancingStrategy: "hardware" | "usage";
+    readonly loadBalancingCapacities: Readonly<Record<string, number>>;
     readonly loadBalancingWeights: Readonly<Record<string, number>>;
   };
-  readonly referencedThreadContexts: ReadonlyArray<ThreadContextRecord>;
-  readonly activeProviderInstanceId: ProviderInstanceId | null;
+  readonly modelSelection: ModelSelection | null;
   readonly selectedProvider: ProviderDriverKind;
   readonly composerHasAttachments: boolean;
   readonly activeProjectKey: string | null;
@@ -54,11 +56,9 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
     envLocked,
     automaticEnvironment,
     logicalProjectEnvironments,
-    environmentById,
-    providersByEnvironment,
+    loadBalancingSources,
     loadBalancingSettings,
-    referencedThreadContexts,
-    activeProviderInstanceId,
+    modelSelection,
     selectedProvider,
     composerHasAttachments,
     activeProjectKey,
@@ -73,43 +73,28 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
   );
   const allProjects = useProjects();
   const { openScratchProject } = useScratchProject();
-  const needsLoadBalancing = automaticEnvironment && !draftThread?.loadBalancedEnvironmentId;
-  const loadBalancingCandidates = needsLoadBalancing
-    ? logicalProjectEnvironments
-        .filter((candidate) => {
-          const environment = environmentById.get(candidate.environmentId);
-          return (
-            environment?.connection.phase === "connected" &&
-            (loadBalancingSettings.loadBalancingWeights[candidate.environmentId] ?? 50) > 0 &&
-            referencedThreadContexts.every(
-              (record) => record.environmentId === candidate.environmentId,
-            ) &&
-            providersByEnvironment
-              .get(candidate.environmentId)
-              ?.some(
-                (provider) =>
-                  (activeProviderInstanceId === null ||
-                    provider.instanceId === activeProviderInstanceId) &&
-                  provider.driver === selectedProvider &&
-                  (environment.serverConfig?.settings
-                    ? resolveProjectProviderInstanceEnabled(
-                        environment.serverConfig.settings,
-                        candidate.projectId,
-                        provider.instanceId,
-                      )
-                    : provider.enabled) &&
-                  provider.installed &&
-                  provider.status !== "error" &&
-                  provider.auth.status !== "unauthenticated" &&
-                  provider.availability !== "unavailable",
-              )
-          );
-        })
-        .map((candidate) => candidate.environmentId)
-    : [];
+  const candidates = loadBalancingSources.flatMap((source) =>
+    eligibleLoadBalancingProviders(source).map((provider) => ({
+      environmentId: source.environmentId,
+      provider,
+      weight: loadBalancingSettings.loadBalancingWeights[source.environmentId] ?? 50,
+    })),
+  );
+  const resolvedTargetAvailable =
+    modelSelection !== null &&
+    candidates.some(
+      (candidate) =>
+        candidate.environmentId === draftThread?.loadBalancedEnvironmentId &&
+        candidate.provider.instanceId === modelSelection.instanceId &&
+        supportsLoadBalancedSelection(candidate.provider, selectedProvider, modelSelection),
+    );
+  const needsLoadBalancing = automaticEnvironment && !resolvedTargetAvailable;
   const loadBalancing = useLoadBalancedEnvironment(
-    loadBalancingCandidates,
-    loadBalancingSettings.loadBalancingWeights,
+    needsLoadBalancing && !composerHasAttachments ? candidates : [],
+    modelSelection,
+    selectedProvider,
+    loadBalancingSettings.loadBalancingStrategy,
+    loadBalancingSettings.loadBalancingCapacities,
   );
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- writes the resolved load-balanced environment into the draft store once the async pick settles
   useEffect(() => {
@@ -117,7 +102,12 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
     const target = logicalProjectEnvironments.find(
       (environment) => environment.environmentId === loadBalancing.environmentId,
     );
-    if (!target?.projectId) return;
+    if (!target?.projectId || !loadBalancing.instanceId || !modelSelection) return;
+    const store = useComposerDraftStore.getState();
+    const explicit = store.getComposerDraft(draftId)?.modelSelectionExplicit === true;
+    const resolvedSelection = { ...modelSelection, instanceId: loadBalancing.instanceId };
+    store.setModelSelection(draftId, resolvedSelection, { explicit, replaceOptions: true });
+    if (explicit) store.setStickyModelSelection(resolvedSelection);
     setDraftThreadContext(draftId, {
       projectRef: scopeProjectRef(target.environmentId, target.projectId),
       environmentSelection: "auto",
@@ -127,6 +117,8 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
     needsLoadBalancing,
     loadBalancing.pending,
     loadBalancing.environmentId,
+    loadBalancing.instanceId,
+    modelSelection,
     draftId,
     logicalProjectEnvironments,
     sendInFlightRef,
@@ -144,9 +136,9 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
       });
       return;
     }
-    loadBalancing.refresh(
-      logicalProjectEnvironments.map((environment) => environment.environmentId),
-    );
+    loadBalancing.refresh([
+      ...new Set(loadBalancingSources.map((source) => source.environmentId)),
+    ] as EnvironmentId[]);
     setDraftThreadContext(draftId, {
       environmentSelection: "auto",
       loadBalancedEnvironmentId: null,
@@ -156,7 +148,7 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
   };
   const onAutoEnvironmentStable = useStableCallback(onAutoEnvironment);
   const autoEnvironmentLabel = automaticEnvironment
-    ? draftThread?.loadBalancedEnvironmentId
+    ? !needsLoadBalancing
       ? "Auto balance"
       : loadBalancing.pending
         ? "Checking machines…"

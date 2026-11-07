@@ -324,6 +324,12 @@ export const LoadBalancingWeights = Schema.Record(
   Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 100 })),
 );
 
+export const LoadBalancingStrategy = Schema.Literals(["hardware", "usage"]);
+export const LoadBalancingCapacities = Schema.Record(
+  TrimmedNonEmptyString,
+  Schema.Number.check(Schema.isBetween({ minimum: 0.01, maximum: 1_000_000 })),
+);
+
 export const DiffColorScheme = Schema.Literals(["red-green", "blue-orange"]);
 
 export const ChatWidth = Schema.Literals(["comfortable", "wide", "full"]);
@@ -360,6 +366,12 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   chatWidth: ChatWidth.pipe(Schema.withDecodingDefault(Effect.succeed("comfortable" as const))),
   effortDisplay: EffortDisplay.pipe(Schema.withDecodingDefault(Effect.succeed("label" as const))),
+  loadBalancingStrategy: LoadBalancingStrategy.pipe(
+    Schema.withDecodingDefault(Effect.succeed("hardware")),
+  ),
+  loadBalancingCapacities: LoadBalancingCapacities.pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
   loadBalancingEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   loadBalancingWeights: LoadBalancingWeights.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   appearanceContrast: AppearanceContrast.pipe(
@@ -1769,6 +1781,8 @@ export const ClientSettingsPatch = Schema.Struct({
   diffColorScheme: Schema.optionalKey(DiffColorScheme),
   chatWidth: Schema.optionalKey(ChatWidth),
   effortDisplay: Schema.optionalKey(EffortDisplay),
+  loadBalancingStrategy: Schema.optionalKey(LoadBalancingStrategy),
+  loadBalancingCapacities: Schema.optionalKey(LoadBalancingCapacities),
   loadBalancingEnabled: Schema.optionalKey(Schema.Boolean),
   loadBalancingWeights: Schema.optionalKey(LoadBalancingWeights),
   appearanceContrast: Schema.optionalKey(AppearanceContrast),

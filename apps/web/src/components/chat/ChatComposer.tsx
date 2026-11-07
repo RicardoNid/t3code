@@ -420,6 +420,7 @@ export interface ChatComposerProps {
 
   lockedProvider: ProviderDriverKind | null;
   providerStatuses: ServerProvider[];
+  providerSettingsApplied?: boolean;
   providerCatalogKnown: boolean;
   activeProjectDefaultModelSelection: ModelSelection | null | undefined;
   activeThreadModelSelection: ModelSelection | null | undefined;
@@ -547,6 +548,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     interactionMode: requestedInteractionMode,
     lockedProvider,
     providerStatuses,
+    providerSettingsApplied,
     providerCatalogKnown,
     activeProjectDefaultModelSelection,
     activeThreadModelSelection,
@@ -883,6 +885,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     composerProviderState,
   } = useComposerProviderModel({
     providerStatuses,
+    providerSettingsApplied,
     settings,
     activeProjectId,
     threadRef: composerDraftTarget,
