@@ -48,7 +48,7 @@ export function PullRequestCompactFilterMenu<Value extends string>({
         className={cn("min-w-0", className)}
       >
         {iconOnly ? (
-          <current.Icon aria-hidden className="size-4" />
+          <PullRequestFilterOptionIcon option={current} className="size-4" />
         ) : triggerLabel ? (
           <>
             {triggerIcon}

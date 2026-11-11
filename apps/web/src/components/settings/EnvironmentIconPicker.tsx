@@ -51,7 +51,7 @@ export function EnvironmentIconMenu({
   return (
     <MenuSub>
       <MenuSubTrigger>
-        <EnvironmentMachineIcon kind={resolved} />
+        <EnvironmentMachineIcon environmentId={environmentId} kind={resolved} />
         Icon
       </MenuSubTrigger>
       <MenuSubPopup>

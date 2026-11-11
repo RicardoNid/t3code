@@ -51,7 +51,7 @@ import {
   type PullRequestListPreferencePatch,
   writePullRequestListPreferences,
 } from "./pullRequestListPreferences";
-import { environmentMachineIcon } from "../EnvironmentMachineIcon";
+import { EnvironmentMachineIcon, environmentMachineIcon } from "../EnvironmentMachineIcon";
 import { PullRequestDetailPanel } from "./PullRequestDetailPanel";
 import {
   PullRequestFiltersMenu,
@@ -1244,6 +1244,14 @@ export function PullRequestsPage() {
       value: environment.environmentId,
       label: environment.label,
       Icon: environmentMachineIcon(resolveEnvironmentMachineKind(environment.serverConfig)),
+      renderIcon: (className: string) => (
+        <EnvironmentMachineIcon
+          environmentId={environment.environmentId}
+          kind={resolveEnvironmentMachineKind(environment.serverConfig)}
+          aria-hidden
+          className={className}
+        />
+      ),
     })),
   ];
   const sortMenu = (

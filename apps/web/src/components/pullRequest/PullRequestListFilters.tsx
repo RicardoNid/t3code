@@ -21,7 +21,7 @@ import {
   TagIcon,
   UserRoundIcon,
 } from "lucide-react";
-import { type ElementType, useState } from "react";
+import { type ElementType, type ReactNode, useState } from "react";
 
 import { getSourceControlPresentationForKind } from "~/sourceControlPresentation";
 import { useDebouncedValue } from "~/state/queries";
@@ -62,19 +62,23 @@ export interface PullRequestFilterOption<Value extends string> {
   readonly value: Value;
   readonly label: string;
   readonly Icon: ElementType<{ className?: string }>;
+  readonly renderIcon?: (className: string) => ReactNode;
   readonly project?: ProjectFaviconProject;
   readonly unavailable?: string | undefined;
 }
 
 export function PullRequestFilterOptionIcon<Value extends string>({
   option,
+  className = "size-3.5",
 }: {
   option: PullRequestFilterOption<Value>;
+  className?: string;
 }) {
+  if (option.renderIcon) return option.renderIcon(className);
   return option.project ? (
-    <ProjectFavicon project={option.project} className="size-3.5" />
+    <ProjectFavicon project={option.project} className={className} />
   ) : (
-    <option.Icon aria-hidden className="size-3.5" />
+    <option.Icon aria-hidden className={className} />
   );
 }
 

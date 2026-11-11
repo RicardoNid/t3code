@@ -212,6 +212,7 @@ function AccessSettings() {
                 <span className="flex min-w-0 items-center gap-2">
                   <EnvironmentMachineIcon
                     aria-hidden
+                    environmentId={environment.environmentId}
                     kind={resolveEnvironmentMachineKind(environment.serverConfig)}
                     className="size-3.5 shrink-0"
                   />
@@ -1147,6 +1148,7 @@ function ConnectionsSettingsContent({
             }
             icon={
               <EnvironmentMachineIcon
+                environmentId={accessEnvironmentId}
                 aria-hidden
                 kind={
                   accessServerConfig ? resolveEnvironmentMachineKind(accessServerConfig) : "desktop"

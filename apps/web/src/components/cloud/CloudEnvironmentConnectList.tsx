@@ -385,6 +385,7 @@ export function CloudEnvironmentConnectRows({
           />
           <EnvironmentMachineIcon
             aria-hidden
+            environmentId={environment.environmentId}
             kind={machineKind}
             className="size-4 shrink-0 text-muted-foreground"
           />
@@ -451,6 +452,7 @@ export function CloudEnvironmentConnectRows({
               />
               <EnvironmentMachineIcon
                 aria-hidden
+                environmentId={environment.environmentId}
                 kind={machineKind}
                 className="size-4 shrink-0 text-muted-foreground"
               />
