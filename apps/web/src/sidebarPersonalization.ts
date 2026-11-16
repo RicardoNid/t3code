@@ -13,6 +13,13 @@ const Group = Schema.Struct({
   collapsed: Schema.Boolean,
   members: Schema.Array(Member),
 });
+export const SidebarDeviceGroup = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  members: Schema.Array(Schema.Struct({ environmentId: Schema.String, label: Schema.String })),
+});
+export type SidebarDeviceGroup = typeof SidebarDeviceGroup.Type;
+
 export const SidebarPersonalization = Schema.Struct({
   version: Schema.Literal(1),
   view: Schema.Literals(["status", "groups"]),
@@ -20,6 +27,7 @@ export const SidebarPersonalization = Schema.Struct({
   groups: Schema.Array(Group),
   ungroupedCollapsed: Schema.Boolean,
   deviceIcons: Schema.Record(Schema.String, Schema.String),
+  deviceGroups: Schema.optionalKey(Schema.Array(SidebarDeviceGroup)),
 });
 export type SidebarPersonalization = typeof SidebarPersonalization.Type;
 const defaults: SidebarPersonalization = {
@@ -56,6 +64,26 @@ export function useSidebarPersonalization() {
   return [useSyncExternalStore(subscribe, snapshot, () => defaults), update] as const;
 }
 
+export function removeSidebarGroupMembers(
+  settings: SidebarPersonalization,
+  threadKeys: ReadonlySet<string>,
+): SidebarPersonalization {
+  let changed = false;
+  const groups = settings.groups.flatMap((group) => {
+    const members = group.members.filter((member) => !threadKeys.has(member.key));
+    if (members.length === group.members.length) return [group];
+    changed = true;
+    return members.length === 0 ? [] : [{ ...group, members }];
+  });
+  return changed ? { ...settings, groups } : settings;
+}
+
+export function removeThreadsFromSidebarGroups(threadKeys: ReadonlySet<string>) {
+  const current = readLocalStorageValue(storageKey, defaults, SidebarPersonalization);
+  const next = removeSidebarGroupMembers(current, threadKeys);
+  if (next !== current) update(next);
+}
+
 export function assignSidebarGroup(
   settings: SidebarPersonalization,
   member: typeof Member.Type,
@@ -64,16 +92,17 @@ export function assignSidebarGroup(
   if (groupId !== null && !settings.groups.some((group) => group.id === groupId)) return settings;
   return {
     ...settings,
-    groups: settings.groups.map((group) => ({
-      ...group,
-      members:
+    groups: settings.groups.flatMap((group) => {
+      const members =
         group.id === groupId && group.members.some((entry) => entry.key === member.key)
           ? group.members.map((entry) => (entry.key === member.key ? member : entry))
           : [
               ...group.members.filter((entry) => entry.key !== member.key),
               ...(group.id === groupId ? [member] : []),
-            ],
-    })),
+            ];
+      if (group.members.length > 0 && members.length === 0) return [];
+      return [{ ...group, members }];
+    }),
   };
 }
 
@@ -131,6 +160,18 @@ export function importSidebarPersonalization(text: string): SidebarPersonalizati
       if (!member.key.includes(":") || members.has(member.key))
         throw new Error("Each thread must belong to one group.");
       members.add(member.key);
+    }
+  }
+  const deviceGroupIds = new Set<string>();
+  for (const group of settings.deviceGroups ?? []) {
+    if (!group.id.trim() || deviceGroupIds.has(group.id) || !group.name.trim())
+      throw new Error("Device group names and unique IDs are required.");
+    deviceGroupIds.add(group.id);
+    const devices = new Set<string>();
+    for (const member of group.members) {
+      if (!member.environmentId.trim() || devices.has(member.environmentId))
+        throw new Error("Devices must be unique within a group.");
+      devices.add(member.environmentId);
     }
   }
   if (!Object.values(settings.deviceIcons).every(validDeviceIcon))

@@ -6,6 +6,12 @@ import { useThreadActions } from "./useThreadActions";
 import { threadEnvironment } from "../state/threads";
 import { toastManager } from "../components/ui/toast";
 import { useThreadUndoNotice } from "./showThreadUndoNotice";
+import { SidebarPersonalization } from "../sidebarPersonalization";
+import {
+  getLocalStorageItem,
+  setLocalStorageItem,
+  removeLocalStorageItem,
+} from "./useLocalStorage";
 
 const commands = vi.hoisted(() => ({
   pin: vi.fn(),
@@ -96,6 +102,36 @@ function currentUndo() {
   const notice = useThreadUndoNotice.getState().notice;
   expect(notice).not.toBeNull();
   return notice!.undo;
+}
+
+const sidebarKey = "t3code:personal-sidebar:v1";
+function groupedThread() {
+  const previous = getLocalStorageItem(sidebarKey, SidebarPersonalization);
+  setLocalStorageItem(
+    sidebarKey,
+    {
+      version: 1,
+      view: "groups",
+      modelIcons: "both",
+      ungroupedCollapsed: false,
+      deviceIcons: {},
+      groups: [
+        {
+          id: "work",
+          name: "Work",
+          collapsed: false,
+          members: [{ key: "undo-env:thread", title: "Thread" }],
+        },
+      ],
+    },
+    SidebarPersonalization,
+  );
+  return {
+    [Symbol.dispose]() {
+      if (previous === null) removeLocalStorageItem(sidebarKey);
+      else setLocalStorageItem(sidebarKey, previous, SidebarPersonalization);
+    },
+  };
 }
 
 beforeEach(() => {
@@ -241,24 +277,29 @@ describe("archive navigation", () => {
 
 describe("settle and snooze Undo", () => {
   it("un-settles from the notice and expires the Undo after a manual un-settle", async () => {
+    using _group = groupedThread();
     const add = vi.spyOn(toastManager, "add").mockReturnValue("toast");
     const actions = useThreadActions();
     await actions.settleThread(target);
+    expect(getLocalStorageItem(sidebarKey, SidebarPersonalization)?.groups).toEqual([]);
     expect(useThreadUndoNotice.getState().notice).toMatchObject({ action: "Settled", count: 1 });
     expect(add).not.toHaveBeenCalled();
     const undo = currentUndo();
     await actions.unsettleThread(target);
     await undo();
     expect(commands.unsettle).toHaveBeenCalledOnce();
+    expect(getLocalStorageItem(sidebarKey, SidebarPersonalization)?.groups).toEqual([]);
   });
 
   it("re-pins and re-snoozes a thread that settling had cleared", async () => {
+    using _group = groupedThread();
     const snoozedUntil = "2030-01-01T09:00:00.000Z";
     threadShell.pinnedAt = "2026-01-01T00:00:00.000Z";
     threadShell.snoozedUntil = snoozedUntil;
     const actions = useThreadActions();
     await actions.settleThread(target);
     await currentUndo()();
+    expect(getLocalStorageItem(sidebarKey, SidebarPersonalization)?.groups).toEqual([]);
     expect(commands.unsettle).toHaveBeenCalledOnce();
     expect(commands.pin).toHaveBeenCalledExactlyOnceWith({
       environmentId: target.environmentId,
@@ -268,6 +309,17 @@ describe("settle and snooze Undo", () => {
       environmentId: target.environmentId,
       input: { threadId: target.threadId, snoozedUntil },
     });
+  });
+
+  it("keeps group membership when settling fails", async () => {
+    using _group = groupedThread();
+    commands.settle.mockResolvedValue({
+      _tag: "Failure",
+      cause: Cause.fail(new Error("Settle failed")),
+    });
+    const before = getLocalStorageItem(sidebarKey, SidebarPersonalization);
+    await useThreadActions().settleThread(target);
+    expect(getLocalStorageItem(sidebarKey, SidebarPersonalization)).toEqual(before);
   });
 
   it("stops settle restoration if restoring the pin fails", async () => {

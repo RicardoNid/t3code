@@ -290,6 +290,33 @@ it("groups only Inbox threads and keeps membership across working transitions", 
   await expect
     .element(screen.getByRole("button", { name: /^DAS schedule, / }))
     .not.toBeInTheDocument();
+  vi.mocked(useQuietThreadShells).mockReturnValue(
+    initialThreads.map((thread) =>
+      thread.id === "das"
+        ? { ...thread, settledOverride: "settled", settledAt: "2026-11-11T12:00:00.000Z" }
+        : thread,
+    ),
+  );
+  await screen.rerender(
+    <SidebarProvider>
+      <Sidebar routeReveal={{ observedKey: null, pendingKey: null }} />
+    </SidebarProvider>,
+  );
+  await vi.waitFor(() =>
+    expect(JSON.parse(localStorage.getItem(key)!).groups[0].members).toEqual([
+      { key: "offline:long-lived", title: "Remote planning" },
+    ]),
+  );
+  vi.mocked(useQuietThreadShells).mockReturnValue(initialThreads);
+  await screen.rerender(
+    <SidebarProvider>
+      <Sidebar routeReveal={{ observedKey: null, pendingKey: null }} />
+    </SidebarProvider>,
+  );
+  await expect.element(screen.getByRole("button", { name: /^DAS schedule, / })).toBeVisible();
+  expect(JSON.parse(localStorage.getItem(key)!).groups[0].members).toEqual([
+    { key: "offline:long-lived", title: "Remote planning" },
+  ]);
 });
 
 it("clears a group's completion badge when a legacy local visit advances", async () => {
@@ -330,8 +357,35 @@ it("clears a group's completion badge when a legacy local visit advances", async
   await expect.element(screen.getByText("unread", { exact: true })).not.toBeInTheDocument();
 });
 
-it("filters sessions by their host device and preserves unavailable device scope", async () => {
+it("filters sessions across projects by their server environment and preserves unavailable scope", async () => {
   using cleanup = new DisposableStack();
+  const preferencesKey = "t3code:personal-sidebar:v1";
+  const previousPreferences = localStorage.getItem(preferencesKey);
+  localStorage.setItem(
+    preferencesKey,
+    JSON.stringify({
+      version: 1,
+      view: "status",
+      modelIcons: "both",
+      groups: [],
+      ungroupedCollapsed: false,
+      deviceIcons: {},
+      deviceGroups: [
+        {
+          id: "mine",
+          name: "My devices",
+          members: [
+            { environmentId: "local", label: "LTR-DEV" },
+            { environmentId: "macbook", label: "MacBook" },
+          ],
+        },
+      ],
+    }),
+  );
+  cleanup.defer(() => {
+    if (previousPreferences === null) localStorage.removeItem(preferencesKey);
+    else localStorage.setItem(preferencesKey, previousPreferences);
+  });
   const key = "t3code:sidebar-device-scope:v1";
   const previous = localStorage.getItem(key);
   localStorage.removeItem(key);
@@ -356,6 +410,7 @@ it("filters sessions by their host device and preserves unavailable device scope
   const projects = [
     project("local-project"),
     { ...project("remote-project"), environmentId: remote },
+    { ...project("remote-sibling-project"), environmentId: remote },
   ];
   vi.mocked(useProjects).mockReturnValue(projects);
   vi.mocked(useQuietThreadShells).mockReturnValue(
@@ -364,7 +419,7 @@ it("filters sessions by their host device and preserves unavailable device scope
         environmentId: entry.environmentId,
         projectId: entry.id,
         id: ThreadId.make(`device-session-${index}`),
-        title: index === 0 ? "Local session" : "Remote session",
+        title: ["Local session", "Remote session", "Remote sibling session"][index]!,
       }),
     ),
   );
@@ -388,9 +443,49 @@ it("filters sessions by their host device and preserves unavailable device scope
   );
   await expect.element(screen.getByRole("button", { name: /^Local session, / })).toBeVisible();
   await expect.element(screen.getByRole("button", { name: /^Remote session, / })).toBeVisible();
+  await expect
+    .element(screen.getByRole("button", { name: /^Remote sibling session, / }))
+    .toBeVisible();
+  await userEvent.click(screen.getByRole("combobox", { name: "Filter threads by device" }));
+  await expect.element(screen.getByRole("option", { name: /^LTR-DEV/ })).not.toBeInTheDocument();
+  await expect.element(screen.getByRole("option", { name: /^MacBook/ })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("option", { name: /^My devices/ }));
+  await expect.element(screen.getByRole("button", { name: /^Local session, / })).toBeVisible();
+  await expect
+    .element(screen.getByRole("button", { name: /^Remote sibling session, / }))
+    .toBeVisible();
+  await expect
+    .element(screen.getByRole("status", { name: "Device activity" }))
+    .toHaveTextContent(
+      "2 devices · 0 active · 2 activity unknown. Across all projects, including subagents.",
+    );
+  expect(JSON.parse(localStorage.getItem(key)!)).toMatch(/^group:/);
+  await userEvent.click(
+    screen.getByRole("combobox", { name: "Filter threads by project", exact: true }),
+  );
+  await userEvent.click(screen.getByRole("option", { name: /local-project/ }));
+  await expect.element(screen.getByRole("button", { name: /^Local session, / })).toBeVisible();
+  await expect
+    .element(screen.getByRole("button", { name: /^Remote session, / }))
+    .not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("combobox", { name: /Filter threads by project:/ }));
+  await userEvent.click(screen.getByRole("option", { name: "All projects", exact: true }));
+  await userEvent.click(screen.getByRole("combobox", { name: "Filter threads by device" }));
+  await userEvent.click(screen.getByRole("option", { name: "All devices", exact: true }));
+  localStorage.setItem(
+    preferencesKey,
+    JSON.stringify({
+      ...JSON.parse(localStorage.getItem(preferencesKey)!),
+      deviceGroups: [],
+    }),
+  );
+  window.dispatchEvent(new StorageEvent("storage", { key: preferencesKey }));
   await userEvent.click(screen.getByRole("combobox", { name: "Filter threads by device" }));
   await userEvent.click(screen.getByRole("option", { name: /MacBook/ }));
   await expect.element(screen.getByRole("button", { name: /^Remote session, / })).toBeVisible();
+  await expect
+    .element(screen.getByRole("button", { name: /^Remote sibling session, / }))
+    .toBeVisible();
   await expect
     .element(screen.getByRole("button", { name: /^Local session, / }))
     .not.toBeInTheDocument();
@@ -410,10 +505,16 @@ it("filters sessions by their host device and preserves unavailable device scope
   await expect
     .element(screen.getByRole("button", { name: /^Local session, / }))
     .not.toBeInTheDocument();
+  await expect
+    .element(screen.getByRole("button", { name: /^Remote sibling session, / }))
+    .not.toBeInTheDocument();
   expect(JSON.parse(localStorage.getItem(key)!)).toBe("macbook");
   await userEvent.click(screen.getByRole("combobox", { name: /Filter threads by project:/ }));
   await userEvent.click(screen.getByRole("option", { name: "All projects", exact: true }));
   await expect.element(screen.getByRole("button", { name: /^Remote session, / })).toBeVisible();
+  await expect
+    .element(screen.getByRole("button", { name: /^Remote sibling session, / }))
+    .toBeVisible();
 
   vi.mocked(useEnvironmentIdentities).mockReturnValue([{ environmentId: local, label: "LTR-DEV" }]);
   await screen.rerender(

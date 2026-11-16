@@ -35,6 +35,24 @@ desktop build.
 Development state lives in `.t3-personal`, never the live `~/.t3/userdata`.
 Use the pairing URL printed by the development runner to open a new browser.
 
+## Desktop-owned homes
+
+On machines where the desktop app owns the default T3 home, reserve it before
+enabling SSH connections:
+
+```sh
+mkdir -p "$HOME/.t3/ssh-launch"
+touch "$HOME/.t3/ssh-launch/desktop-only"
+```
+
+Updated SSH clients then reuse a running backend without replacing or stopping
+it. When no backend is running, SSH asks for the desktop app to be started instead
+of launching a competing CLI server. Enable desktop login startup on that host;
+this marker does not launch the app. Remove the marker to restore SSH auto-start.
+Older clients do not honor this policy, so update every client with an SSH route
+to the host. Enabling it leaves existing servers running; move an already running
+SSH backend to the desktop only in an idle maintenance window.
+
 Focused tests can run without loading the mobile test configuration:
 
 ```sh

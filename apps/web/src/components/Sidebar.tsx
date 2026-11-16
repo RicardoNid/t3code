@@ -1,7 +1,15 @@
 import { liveShellEnvironmentIdsAtom } from "../state/shell";
 import { SidebarDeviceScope } from "./sidebar/SidebarDeviceScope";
-import { sidebarDeviceActivity, sidebarDeviceProjectScope } from "./sidebar/deviceScope";
-import { personalSidebarGroups, useSidebarPersonalization } from "../sidebarPersonalization";
+import {
+  sidebarDeviceActivity,
+  sidebarDeviceProjectScope,
+  sidebarDeviceScopeIds,
+} from "./sidebar/deviceScope";
+import {
+  personalSidebarGroups,
+  removeThreadsFromSidebarGroups,
+  useSidebarPersonalization,
+} from "../sidebarPersonalization";
 import { PersonalSidebarControls } from "./sidebar/PersonalSidebarControls";
 import { PersonalSidebarGroupHeader } from "./sidebar/PersonalSidebarGroupHeader";
 import { attachSidebarTree } from "../lib/sidebarTree";
@@ -1106,6 +1114,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const chosenProjectGroups = scopeGroups.filter((project) =>
     chosenProjectScopeKeys.includes(project.projectKey),
   );
+  const deviceScopeIds = sidebarDeviceScopeIds(deviceScopeId, personalSettings.deviceGroups ?? []);
   const chosenScopeProjectKeys = sidebarDeviceProjectScope(
     projects,
     chosenProjectGroups.length === 0
@@ -1117,9 +1126,24 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             ),
           ),
         ),
-    deviceScopeId,
+    deviceScopeIds,
   );
   const threads = useQuietThreadShells();
+  const groupMemberKeys = new Set(
+    personalSettings.groups.flatMap((group) => group.members.map((member) => member.key)),
+  );
+  const settledGroupMemberKeys = new Set(
+    threads
+      .filter(
+        (thread) =>
+          thread.settledOverride === "settled" && groupMemberKeys.has(threadShellKey(thread)),
+      )
+      .map(threadShellKey),
+  );
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- persists removals from client-local groups when server snapshots confirm settlement, including changes made on another client
+  useEffect(() => {
+    if (settledGroupMemberKeys.size > 0) removeThreadsFromSidebarGroups(settledGroupMemberKeys);
+  }, [settledGroupMemberKeys]);
   const deviceActivity = sidebarDeviceActivity(threads);
   const liveDeviceIds = useAtomValue(liveShellEnvironmentIdsAtom);
   const deviceScopeItems = [...environmentLabelById].map(([environmentId, label]) => ({
@@ -1159,12 +1183,18 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   });
   const revealWidensDeviceScope =
     revealWidensScope &&
-    deviceScopeId !== null &&
-    threads.find((thread) => threadShellKey(thread) === routeRowThreadKey)?.environmentId !==
-      deviceScopeId;
+    deviceScopeIds !== null &&
+    !deviceScopeIds.has(
+      threads.find((thread) => threadShellKey(thread) === routeRowThreadKey)?.environmentId ?? "",
+    );
   const projectScopeKeys = revealWidensScope ? [] : chosenProjectScopeKeys;
   const effectiveDeviceScopeId = revealWidensDeviceScope ? null : deviceScopeId;
-  const projectScopeKey = JSON.stringify([projectScopeKeys, effectiveDeviceScopeId]);
+  const effectiveDeviceScopeIds = revealWidensDeviceScope ? null : deviceScopeIds;
+  const projectScopeKey = JSON.stringify([
+    projectScopeKeys,
+    effectiveDeviceScopeId,
+    effectiveDeviceScopeIds === null ? null : [...effectiveDeviceScopeIds],
+  ]);
   const toggleProjectScopeKey = (key: string) =>
     setProjectScopeKeys(
       projectScopeKeys.includes(key)
@@ -1223,12 +1253,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const scopedProjectGroups = revealWidensScope ? [] : chosenProjectGroups;
   const scopedProjectRefs = scopedProjectGroups.flatMap((project) => project.memberProjectRefs);
   const scopedProjectKeys = revealWidensScope
-    ? sidebarDeviceProjectScope(projects, null, effectiveDeviceScopeId)
+    ? sidebarDeviceProjectScope(projects, null, effectiveDeviceScopeIds)
     : chosenScopeProjectKeys;
   const threadSearch = useThreadSearch(
-    effectiveDeviceScopeId === null
+    effectiveDeviceScopeIds === null
       ? connectedEnvironmentIds
-      : connectedEnvironmentIds.filter((id) => id === effectiveDeviceScopeId),
+      : connectedEnvironmentIds.filter((id) => effectiveDeviceScopeIds.has(id)),
     threadSearchQuery,
     scopedProjectGroups.length === 0
       ? {}
@@ -1387,13 +1417,17 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           ? // An archived project keeps a folder for its active threads, below the rest.
             [...scopeGroups, ...projectGroups.filter((project) => project.archived)].filter(
               (group) =>
-                effectiveDeviceScopeId === null ||
-                group.memberProjectRefs.some((ref) => ref.environmentId === effectiveDeviceScopeId),
+                effectiveDeviceScopeIds === null ||
+                group.memberProjectRefs.some((ref) =>
+                  effectiveDeviceScopeIds.has(ref.environmentId),
+                ),
             )
           : scopedProjectGroups.filter(
               (group) =>
-                effectiveDeviceScopeId === null ||
-                group.memberProjectRefs.some((ref) => ref.environmentId === effectiveDeviceScopeId),
+                effectiveDeviceScopeIds === null ||
+                group.memberProjectRefs.some((ref) =>
+                  effectiveDeviceScopeIds.has(ref.environmentId),
+                ),
             )
         : null,
     keepEmptyFolders: (group) =>
@@ -2708,7 +2742,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             [
-              { id: "personal-group" as const, label: "Move to group…", icon: "folder" },
+              {
+                id: "personal-group" as const,
+                label: "Move to group…",
+                icon: "folder",
+                disabled: isSettled,
+              },
               ...buildThreadActionMenuItems({
                 canOperate: readEnvironmentScope(
                   threadRef.environmentId,
@@ -3091,9 +3130,21 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               }))}
               assignment={groupAssignment}
               onAssignmentDone={() => setGroupAssignment(null)}
+              onDeviceGroupsChanged={() => {
+                clearSelection();
+                scrollSidebarToTop(sidebarContentRef.current);
+              }}
+              onDeviceGroupDeleted={(id) => {
+                if (deviceScopeId === `group:${id}`) {
+                  clearSelection();
+                  setDeviceScopeId(null);
+                  scrollSidebarToTop(sidebarContentRef.current);
+                }
+              }}
             />
             <SidebarDeviceScope
               devices={deviceScopeItems}
+              groups={personalSettings.deviceGroups ?? []}
               value={effectiveDeviceScopeId}
               onChange={(id) => {
                 clearSelection();

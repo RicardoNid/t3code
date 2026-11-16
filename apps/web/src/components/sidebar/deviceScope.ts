@@ -1,3 +1,4 @@
+import type { SidebarDeviceGroup } from "../../sidebarPersonalization";
 import {
   threadRuntimeIsActive,
   type EnvironmentThreadShell,
@@ -15,16 +16,29 @@ export function sidebarDeviceActivity(
   return counts;
 }
 
+export function sidebarDeviceScopeIds(
+  value: string | null,
+  groups: readonly SidebarDeviceGroup[],
+): ReadonlySet<string> | null {
+  if (value === null) return null;
+  if (!value.startsWith("group:")) return new Set([value]);
+  return new Set(
+    groups
+      .find((group) => `group:${group.id}` === value)
+      ?.members.map((member) => member.environmentId) ?? [],
+  );
+}
+
 export function sidebarDeviceProjectScope(
   projects: readonly { environmentId: string; id: string }[],
   projectKeys: ReadonlySet<string> | null,
-  environmentId: string | null,
+  environmentIds: ReadonlySet<string> | null,
 ): ReadonlySet<string> | null {
-  if (environmentId === null) return projectKeys;
+  if (environmentIds === null) return projectKeys;
   return new Set(
     projects.flatMap((project) => {
       const key = `${project.environmentId}:${project.id}`;
-      return project.environmentId === environmentId &&
+      return environmentIds.has(project.environmentId) &&
         (projectKeys === null || projectKeys.has(key))
         ? [key]
         : [];

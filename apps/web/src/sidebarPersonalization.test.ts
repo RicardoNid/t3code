@@ -4,6 +4,7 @@ import {
   importSidebarPersonalization,
   modelBrand,
   personalSidebarGroups,
+  removeSidebarGroupMembers,
   type SidebarPersonalization,
 } from "./sidebarPersonalization";
 
@@ -43,10 +44,32 @@ describe("personal sidebar", () => {
       moved,
     );
     expect(
-      assignSidebarGroup(moved, { key: "px:das", title: "DAS planning" }, null).groups[1]?.members,
-    ).toEqual([]);
+      assignSidebarGroup(moved, { key: "px:das", title: "DAS planning" }, null).groups.map(
+        (group) => group.id,
+      ),
+    ).toEqual(["planning"]);
+    const reassigned = assignSidebarGroup(
+      moved,
+      { key: "mac:das", title: "Other DAS" },
+      "research",
+    );
+    expect(reassigned.groups.map((group) => group.id)).toEqual(["research"]);
     expect(original.groups[0]?.members).toHaveLength(2);
     expect(assignSidebarGroup(original, { key: "px:das", title: "DAS" }, "missing")).toBe(original);
+  });
+
+  it("permanently removes settled members, pruning emptied groups without treating offline members as absent", () => {
+    const original = settings();
+    const removed = removeSidebarGroupMembers(original, new Set(["px:das"]));
+    expect(removed.groups[0]?.members.map((member) => member.key)).toEqual(["mac:das"]);
+    expect(
+      personalSidebarGroups(removed, [{ key: "px:das", title: "DAS" }], null, true).at(-1)?.members,
+    ).toEqual([{ key: "px:das", title: "DAS" }]);
+    const emptied = removeSidebarGroupMembers(removed, new Set(["mac:das"]));
+    expect(emptied.groups.map((group) => group.id)).toEqual(["research"]);
+    expect(removeSidebarGroupMembers(original, new Set(["px:das", "mac:das"]))).toEqual(emptied);
+    expect(removeSidebarGroupMembers(original, new Set(["unknown:das"]))).toBe(original);
+    expect(original.groups[0]?.members).toHaveLength(2);
   });
 
   it("retains unavailable members, reveals the current row, and honors project filtering", () => {
@@ -80,7 +103,25 @@ describe("personal sidebar", () => {
 
   it("round-trips preferences and rejects ambiguous or unsafe imports", () => {
     expect(importSidebarPersonalization(JSON.stringify(settings()))).toEqual(settings());
+    const deviceGroup = {
+      id: "mine",
+      name: "My devices",
+      members: [{ environmentId: "mac", label: "MacBook" }],
+    };
+    const grouped = {
+      ...settings(),
+      deviceGroups: [deviceGroup, { ...deviceGroup, id: "shared" }],
+    };
+    expect(importSidebarPersonalization(JSON.stringify(grouped))).toEqual(grouped);
     const invalid = [
+      { ...settings(), deviceGroups: [deviceGroup, deviceGroup] },
+      { ...settings(), deviceGroups: [{ ...deviceGroup, name: " " }] },
+      {
+        ...settings(),
+        deviceGroups: [
+          { ...deviceGroup, members: [...deviceGroup.members, ...deviceGroup.members] },
+        ],
+      },
       { ...settings(), version: 2 },
       { ...settings(), groups: [...settings().groups, settings().groups[0]] },
       {

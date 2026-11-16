@@ -21,6 +21,7 @@ import * as Cause from "effect/Cause";
 import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/reactivity";
 import { useRouter } from "@tanstack/react-router";
+import { removeThreadsFromSidebarGroups } from "../sidebarPersonalization";
 
 import { getFallbackThreadIdAfterDelete, pinOrderKeyBetween } from "../components/Sidebar.logic";
 import { useComposerDraftStore } from "../composerDraftStore";
@@ -772,6 +773,7 @@ export function useThreadActions() {
       action.finish();
       return result;
     }
+    removeThreadsFromSidebarGroups(new Set([scopedThreadKey(target)]));
     if (wokeAt !== null) {
       markThreadVisited(scopedThreadKey(target), wokeAt);
     }

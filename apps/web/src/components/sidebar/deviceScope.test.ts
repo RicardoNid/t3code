@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 import { EnvironmentId, ProviderInstanceId } from "@t3tools/contracts";
-import { sidebarDeviceActivity, sidebarDeviceProjectScope } from "./deviceScope";
+import {
+  sidebarDeviceActivity,
+  sidebarDeviceProjectScope,
+  sidebarDeviceScopeIds,
+} from "./deviceScope";
 
 describe("device scope", () => {
   it("intersects project scopes without broadening an empty or unavailable device", () => {
@@ -12,17 +16,56 @@ describe("device scope", () => {
     const projectKeys = new Set(["ltr-dev:shared-id", "macbook:shared-id"]);
     expect(sidebarDeviceProjectScope(projects, projectKeys, null)).toBe(projectKeys);
     expect(sidebarDeviceProjectScope(projects, null, null)).toBeNull();
-    expect([...sidebarDeviceProjectScope(projects, null, "macbook")!]).toEqual([
+    expect([...sidebarDeviceProjectScope(projects, null, new Set(["macbook"]))!]).toEqual([
       "macbook:shared-id",
       "macbook:other",
     ]);
-    expect([...sidebarDeviceProjectScope(projects, projectKeys, "macbook")!]).toEqual([
+    expect([...sidebarDeviceProjectScope(projects, projectKeys, new Set(["macbook"]))!]).toEqual([
       "macbook:shared-id",
     ]);
     expect([
-      ...sidebarDeviceProjectScope(projects, new Set(["ltr-dev:shared-id"]), "macbook")!,
+      ...sidebarDeviceProjectScope(projects, new Set(["ltr-dev:shared-id"]), new Set(["macbook"]))!,
     ]).toEqual([]);
-    expect([...sidebarDeviceProjectScope(projects, null, "removed")!]).toEqual([]);
+    expect([...sidebarDeviceProjectScope(projects, null, new Set(["removed"]))!]).toEqual([]);
+  });
+
+  it("resolves device groups without including unrelated devices or widening missing groups", () => {
+    const groups = [
+      {
+        id: "mine",
+        name: "My devices",
+        members: [
+          { environmentId: "ltr-dev", label: "LTR-DEV" },
+          { environmentId: "macbook", label: "MacBook" },
+          { environmentId: "offline", label: "Offline host" },
+        ],
+      },
+      { id: "empty", name: "New group", members: [] },
+    ];
+    expect(sidebarDeviceScopeIds(null, groups)).toBeNull();
+    expect([...sidebarDeviceScopeIds("macbook", groups)!]).toEqual(["macbook"]);
+    expect([...sidebarDeviceScopeIds("group:mine", groups)!]).toEqual([
+      "ltr-dev",
+      "macbook",
+      "offline",
+    ]);
+    expect([...sidebarDeviceScopeIds("group:missing", groups)!]).toEqual([]);
+    expect([...sidebarDeviceScopeIds("group:empty", groups)!]).toEqual([]);
+    const projects = [
+      { environmentId: "ltr-dev", id: "shared" },
+      { environmentId: "macbook", id: "shared" },
+      { environmentId: "someone-else", id: "shared" },
+    ];
+    expect([
+      ...sidebarDeviceProjectScope(
+        projects,
+        new Set(["macbook:shared", "someone-else:shared"]),
+        sidebarDeviceScopeIds("group:mine", groups),
+      )!,
+    ]).toEqual(["macbook:shared"]);
+    expect([
+      ...sidebarDeviceProjectScope(projects, null, sidebarDeviceScopeIds("group:missing", groups))!,
+    ]).toEqual([]);
   });
 
   it("counts in-flight work by environment, including queued and blocked turns", () => {
