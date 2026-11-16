@@ -91,6 +91,51 @@ it("keeps edits when switching customization tabs and shares import/export acros
   await expect.element(page.getByRole("alert")).not.toBeInTheDocument();
   await userEvent.upload(upload, image);
   await expect.element(page.getByRole("button", { name: "Reset icon for MacBook" })).toBeEnabled();
+  await userEvent.click(page.getByRole("button", { name: "Generate icon for MacBook" }));
+  await expect.element(page.getByRole("button", { name: "Use image", exact: true })).toBeDisabled();
+  await userEvent.click(page.getByRole("button", { name: "Cancel", exact: true }));
+  expect(JSON.parse(localStorage.getItem(key)!).deviceIcons.mac).toBe(uploaded);
+  await userEvent.click(page.getByRole("button", { name: "Generate icon for MacBook" }));
+  const letters = page.getByRole("textbox", { name: "Letters", exact: true });
+  for (const invalid of ["!", "中", "ß", " "]) {
+    await userEvent.fill(letters, invalid);
+    await expect
+      .element(page.getByRole("button", { name: "Use image", exact: true }))
+      .toBeDisabled();
+  }
+  for (const valid of ["a", "12", "z9x"]) {
+    await userEvent.fill(letters, valid);
+    await expect.element(letters).toHaveValue(valid.toUpperCase());
+    await expect
+      .element(page.getByRole("button", { name: "Use image", exact: true }))
+      .toBeEnabled();
+  }
+  await userEvent.fill(letters, "zjk");
+  await expect.element(letters).toHaveValue("ZJK");
+  await userEvent.click(page.getByRole("button", { name: "Blue", exact: true }));
+  await userEvent.click(page.getByRole("button", { name: "Use image", exact: true }));
+  const generated = JSON.parse(localStorage.getItem(key)!).deviceIcons.mac;
+  expect(generated).toMatch(/^data:image\/png;base64,/);
+  expect(generated).not.toBe(uploaded);
+  expect(generated.length).toBeLessThanOrEqual(180000);
+  const bitmap = await createImageBitmap(await (await fetch(generated)).blob());
+  cleanup.defer(() => bitmap.close());
+  expect([bitmap.width, bitmap.height]).toEqual([256, 256]);
+  const decoded = document.createElement("canvas");
+  decoded.width = decoded.height = 256;
+  const pixels = decoded.getContext("2d")!;
+  pixels.drawImage(bitmap, 0, 0);
+  expect(pixels.getImageData(0, 0, 1, 1).data[3]).toBe(0);
+  const background = pixels.getImageData(128, 24, 1, 1).data;
+  expect(background[3]).toBe(255);
+  expect(background[0]).toBeGreaterThan(180);
+  expect(background[2]).toBeGreaterThan(background[0]!);
+  const data = pixels.getImageData(0, 0, 256, 256).data;
+  let ink = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] === 255 && data[i]! < 180 && data[i + 2]! > data[i]!) ink++;
+  }
+  expect(ink).toBeGreaterThan(100);
   await userEvent.click(page.getByRole("button", { name: "Harness", exact: true }));
   await expect
     .element(page.getByRole("button", { name: "Import preferences", exact: true }))
@@ -111,7 +156,7 @@ it("keeps edits when switching customization tabs and shares import/export acros
     .element(page.getByRole("tab", { name: "Device groups", exact: true }))
     .toHaveAttribute("aria-selected", "true");
   const saved = JSON.parse(localStorage.getItem(key)!);
-  expect(saved.deviceIcons).toEqual({ mac: uploaded });
+  expect(saved.deviceIcons).toEqual({ mac: generated });
   expect(saved.modelIcons).toBe("harness");
   expect(saved.groups.map((group: { name: string }) => group.name)).toEqual(["Maintenance"]);
   expect(saved.deviceGroups.map((group: { name: string }) => group.name)).toEqual([

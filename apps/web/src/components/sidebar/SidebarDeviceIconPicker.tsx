@@ -1,9 +1,10 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { ImageIcon } from "lucide-react";
 import { useSidebarPersonalization } from "../../sidebarPersonalization";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipTrigger, TooltipPopup } from "../ui/tooltip";
+import { DeviceTextIconDialog } from "./DeviceTextIconDialog";
 
 export function SidebarDeviceIconPicker(props: {
   environment: { environmentId: string; label: string };
@@ -11,6 +12,7 @@ export function SidebarDeviceIconPicker(props: {
 }) {
   const [settings, update] = useSidebarPersonalization();
   const input = useRef<HTMLInputElement>(null);
+  const [textDialogOpen, setTextDialogOpen] = useState(false);
   const { environmentId, label } = props.environment;
   const icon = settings.deviceIcons[environmentId];
   const setIcon = (value: string | null) =>
@@ -41,7 +43,15 @@ export function SidebarDeviceIconPicker(props: {
         aria-label={`Choose image for ${label}`}
         onClick={() => input.current?.click()}
       >
-        Choose image
+        Upload
+      </Button>
+      <Button
+        variant="outline"
+        size="compact"
+        aria-label={`Generate icon for ${label}`}
+        onClick={() => setTextDialogOpen(true)}
+      >
+        From text
       </Button>
       <Button
         variant="ghost"
@@ -83,6 +93,16 @@ export function SidebarDeviceIconPicker(props: {
           reader.readAsDataURL(file);
         }}
       />
+      {textDialogOpen ? (
+        <DeviceTextIconDialog
+          label={label}
+          onClose={() => setTextDialogOpen(false)}
+          onGenerate={(image) => {
+            setIcon(image);
+            props.onError(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
