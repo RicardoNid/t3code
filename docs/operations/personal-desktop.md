@@ -80,3 +80,65 @@ builds local artifacts and does not publish them to GitHub. On machines without
 The wrapper also places the system C compiler first under its isolated tool
 directory: packaging probes `cc` directly, so setting `CC` alone cannot bypass a
 shell launcher with the same name.
+
+## Personal macOS installation and rollback retention
+
+Use `scripts/personal-macos-backup.py` for the backup and completion steps of
+future personal installations. Retire the ad hoc `install-personal-v*.sh`,
+`t3-install-macos-v10.sh` and deployment scripts that copy whole homes or keep
+unpacked application backups. The helper does not stop, replace or start T3;
+those steps still require explicit deployment authorization and the maintenance
+checks in [personal maintenance rules](personal-maintenance-rules.md).
+
+1. Check idle state (including pending requests and waiting sessions), the home
+   owner, available disk space and the signed incoming application. Stop the
+   desktop and its backend using the verified existing shutdown flow. Do not
+   start a competing server or remove home locks.
+2. Run `python3 scripts/personal-macos-backup.py prepare --stopped-confirmed`.
+   Retain the returned backup path. It saves one verified `application.zip`, a
+   SQLite backups of `statev2.sqlite` and the ownership database when present, plus selected identity, credentials and client
+   preferences under `~/t3-fork-build/backups.noindex/rollback-*`. It does not copy
+   worktrees, attachments, logs, runtime caches or the entire T3 home. The source
+   application stays in place; **do not also ditto it or move it into a backup**.
+   A failed or interrupted prepare blocks new backups until it is investigated.
+3. Replace the stopped application with the signed incoming app. Keep any brief
+   rename used for atomic replacement in a temporary `.noindex` staging folder,
+   and remove it after successful replacement; `application.zip` is the durable
+   rollback copy. On replacement failure restore the original immediately.
+   For later rollback, extract `application.zip` in a `.noindex` staging folder
+   and restore the snapshot/settings with all T3 processes stopped. Never restore
+   a database over a running backend.
+4. Start T3 and verify the actual backend version, unchanged environment identity,
+   saved environments, Links and sessions, plus home availability. On failure
+   retain rollback data and do not finalize.
+5. After runtime acceptance, run:
+
+   ```sh
+   python3 scripts/personal-macos-backup.py finalize /absolute/returned/backup/path \
+     --stage "$HOME/t3-fork-build/package-stage-next.noindex" \
+     --expected-version <installed-version> --runtime-accepted
+   ```
+
+   This verifies the installed version and signature, removes the specified
+   temporary stage, requests indexing of the installed app and runs
+   `mdfind 'kMDItemCFBundleIdentifier == "com.t3tools.t3code"'`. Only
+   `/Applications/T3 Code (Beta).app` may match. On failure no rollback pruning
+   occurs; inspect extra paths or allow a stale index to refresh before retrying.
+   After success it retains **one** managed rollback backup; `--keep 2` is the
+   maximum. Unrecognized/manual historical backups are never silently deleted.
+   The separately retained legacy rollback should be retired explicitly once the
+   new rollback is accepted, so it does not become a second unlimited history.
+
+Do not rely on a Time Machine exclusion attribute as the Spotlight check.
+All temporary app trees should be under `package-stage-*.noindex` or
+`install-stage-*.noindex`. Packaging must remove its extracted app in a `finally`
+cleanup after signed ZIP/DMG validation, even when no installation follows;
+retain the compressed artifacts only. The same guarded cleanup is available as
+`python3 scripts/personal-macos-backup.py cleanup-stage --stage /absolute/stage/path`. Do not leave old `package-stage-*` app
+copies after a successful installation. Never clean another operation's active
+stage by glob. A failed install keeps its explicitly identified stage and backup
+for recovery.
+
+The helper's isolated filesystem/SQLite regression tests run with
+`python3 scripts/personal-macos-backup.test.py`; they do not touch the installed
+application or live home.
