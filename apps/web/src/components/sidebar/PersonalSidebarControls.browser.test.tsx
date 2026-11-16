@@ -68,17 +68,32 @@ it("keeps edits when switching customization tabs and shares import/export acros
   const upload = document.querySelector<HTMLInputElement>(
     'input[aria-label="Upload icon for MacBook"]',
   )!;
-  const png = Uint8Array.from(
-    atob(
-      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aEioAAAAASUVORK5CYII=",
-    ),
-    (c) => c.charCodeAt(0),
-  );
+  const original = document.createElement("canvas");
+  original.width = 1024;
+  original.height = 512;
+  const paint = original.getContext("2d")!;
+  paint.fillStyle = "#ef4444";
+  paint.fillRect(0, 0, 1024, 512);
+  const png = new Uint8Array(await (await fetch(original.toDataURL("image/png"))).arrayBuffer());
   const image = new File([png], "icon.png", { type: "image/png" });
   await userEvent.upload(upload, image);
   await expect.element(page.getByRole("button", { name: "Reset icon for MacBook" })).toBeEnabled();
   const uploaded = JSON.parse(localStorage.getItem(key)!).deviceIcons.mac;
   expect(uploaded).toMatch(/^data:image\/png;base64,/);
+  const thumbnail = await createImageBitmap(await (await fetch(uploaded)).blob());
+  cleanup.defer(() => thumbnail.close());
+  expect([thumbnail.width, thumbnail.height]).toEqual([256, 256]);
+  const thumbnailCanvas = document.createElement("canvas");
+  thumbnailCanvas.width = thumbnailCanvas.height = 256;
+  const thumbnailPixels = thumbnailCanvas.getContext("2d")!;
+  thumbnailPixels.drawImage(thumbnail, 0, 0);
+  expect(thumbnailPixels.getImageData(128, 20, 1, 1).data[3]).toBe(0);
+  expect(thumbnailPixels.getImageData(128, 128, 1, 1).data).toEqual(
+    new Uint8ClampedArray([239, 68, 68, 255]),
+  );
+  await userEvent.upload(upload, new File(["not an image"], "broken.png", { type: "image/png" }));
+  await expect.element(page.getByRole("alert")).toHaveTextContent("Could not read the image.");
+  expect(JSON.parse(localStorage.getItem(key)!).deviceIcons.mac).toBe(uploaded);
   await userEvent.upload(
     upload,
     new File([new Uint8Array(131073)], "large.png", { type: "image/png" }),

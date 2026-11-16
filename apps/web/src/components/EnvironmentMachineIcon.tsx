@@ -74,13 +74,9 @@ export function EnvironmentMachineIcon({
   const custom = environmentId ? settings.deviceIcons[environmentId] : undefined;
   if (custom && validDeviceIcon(custom)) {
     return custom.startsWith("data:image/") ? (
-      <img
-        src={custom}
-        alt=""
-        aria-hidden={props["aria-hidden"]}
-        className={props.className}
-        style={{ objectFit: "contain" }}
-      />
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" {...props}>
+        <image href={custom} width="24" height="24" preserveAspectRatio="xMidYMid meet" />
+      </svg>
     ) : (
       <span aria-hidden={props["aria-hidden"]} className={props.className}>
         {custom}

@@ -239,7 +239,8 @@ export function PersonalSidebarControls(props: {
                     <div className="flex flex-col gap-2">
                       <Label>Device icons</Label>
                       <p className="text-xs text-muted-foreground">
-                        PNG, JPEG or WebP, up to 128 KB. Reset restores the default icon.
+                        PNG, JPEG or WebP, up to 128 KB. Images are resized to fit 256 × 256. Reset
+                        restores the default icon.
                       </p>
                       <div className="divide-y divide-border">
                         {props.environments.map((environment) => (

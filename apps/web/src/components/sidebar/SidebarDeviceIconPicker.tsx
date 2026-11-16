@@ -5,6 +5,7 @@ import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipTrigger, TooltipPopup } from "../ui/tooltip";
 import { DeviceTextIconDialog } from "./DeviceTextIconDialog";
+import { createDeviceIconImage } from "./deviceIconImage";
 
 export function SidebarDeviceIconPicker(props: {
   environment: { environmentId: string; label: string };
@@ -12,16 +13,19 @@ export function SidebarDeviceIconPicker(props: {
 }) {
   const [settings, update] = useSidebarPersonalization();
   const input = useRef<HTMLInputElement>(null);
+  const selection = useRef(0);
   const [textDialogOpen, setTextDialogOpen] = useState(false);
   const { environmentId, label } = props.environment;
   const icon = settings.deviceIcons[environmentId];
-  const setIcon = (value: string | null) =>
+  const setIcon = (value: string | null) => {
+    selection.current++;
     update((current) => {
       const deviceIcons = { ...current.deviceIcons };
       if (value === null) delete deviceIcons[environmentId];
       else deviceIcons[environmentId] = value;
       return { ...current, deviceIcons };
     });
+  };
   return (
     <div className="flex items-center gap-3 py-2">
       <span className="flex size-8 shrink-0 items-center justify-center">
@@ -71,10 +75,11 @@ export function SidebarDeviceIconPicker(props: {
         type="file"
         aria-label={`Upload icon for ${label}`}
         accept="image/png,image/jpeg,image/webp"
-        onChange={(event) => {
+        onChange={async (event) => {
           const file = event.target.files?.[0];
           event.target.value = "";
           if (!file) return;
+          const request = ++selection.current;
           if (
             !["image/png", "image/jpeg", "image/webp"].includes(file.type) ||
             file.size > 131072
@@ -82,15 +87,17 @@ export function SidebarDeviceIconPicker(props: {
             props.onError("Choose a PNG, JPEG or WebP image no larger than 128 KB.");
             return;
           }
-          const reader = new FileReader();
-          reader.onload = () => {
-            if (typeof reader.result === "string") {
-              setIcon(reader.result);
+          try {
+            const image = await createDeviceIconImage(file);
+            if (input.current && selection.current === request) {
+              setIcon(image);
               props.onError(null);
             }
-          };
-          reader.onerror = () => props.onError("Could not read the image.");
-          reader.readAsDataURL(file);
+          } catch {
+            if (input.current && selection.current === request) {
+              props.onError("Could not read the image.");
+            }
+          }
         }}
       />
       {textDialogOpen ? (

@@ -33,7 +33,7 @@ function Preferences({ icon }: { icon: string }) {
 }
 
 function deviceIcon(element: Element) {
-  return element.querySelector("img")?.getAttribute("src") ?? element.textContent;
+  return element.querySelector("image")?.getAttribute("href") ?? element.textContent;
 }
 
 it.each([

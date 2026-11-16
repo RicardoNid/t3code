@@ -26,7 +26,7 @@ dragging between groups does not reassign a thread.
 
 The **Icons** tab chooses model-only, model-plus-harness or harness-only
 icons. Recognized model families include DeepSeek, Claude, GPT/Codex, Gemini and
-Qwen, Kimi, GLM, MiniMax, Doubao/Seed, ERNIE, Hunyuan, Step and Yi. Card and hover-detail icons use the same preference. Unknown models retain their harness icon. Upload a PNG/JPEG/WebP image up to 128 KB for each device, or choose **From text** to generate an image from 1–3 letters or numbers and a color. Reset an override to restore the detected device icon.
+Qwen, Kimi, GLM, MiniMax, Doubao/Seed, ERNIE, Hunyuan, Step and Yi. Card and hover-detail icons use the same preference. Unknown models retain their harness icon. Upload a PNG/JPEG/WebP image up to 128 KB for each device; a thumbnail of at most 256 × 256 pixels is saved without cropping or changing your original file. Or choose **From text** to generate an image from 1–3 letters or numbers and a color. Reset an override to restore the detected device icon.
 
 Use **All devices** above the project filter to view sessions hosted by one
 T3 server, across projects. Device and project filters combine; choose **All
