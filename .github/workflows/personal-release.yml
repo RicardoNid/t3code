@@ -1,0 +1,162 @@
+name: Personal fork release
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+concurrency:
+  group: personal-fork-release
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  resolve:
+    if: github.repository == 'RicardoNid/t3code'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    outputs:
+      needed: ${{ steps.candidate.outputs.needed }}
+      ref: ${{ steps.candidate.outputs.ref }}
+      base: ${{ steps.candidate.outputs.base }}
+      version: ${{ steps.candidate.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Controller regression tests
+        run: python3 scripts/personal-release.test.py
+      - name: Resolve and merge stable upstream
+        id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Keep the recipe outside the candidate checkout it creates.
+          mkdir -p "$RUNNER_TEMP/controller/scripts" "$RUNNER_TEMP/controller/.github/workflows"
+          cp scripts/personal-release.py "$RUNNER_TEMP/controller/scripts/"
+          cp .github/workflows/personal-release.yml "$RUNNER_TEMP/controller/.github/workflows/"
+          python3 "$RUNNER_TEMP/controller/scripts/personal-release.py" resolve
+  validate:
+    needs: resolve
+    if: needs.resolve.outputs.needed == 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    env:
+      TZ: Asia/Shanghai
+      NODE_OPTIONS: --max-old-space-size=8192
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.ref }}
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-ci-deps
+      - name: Native test prerequisites
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
+      - name: Browser test dependencies
+        run: node apps/web/node_modules/playwright/cli.js install --with-deps --only-shell chromium
+      - name: Affected checks and personal behavior regressions
+        env:
+          PERSONAL_BASE: ${{ needs.resolve.outputs.base }}
+        run: |
+          vp run check:changed "$PERSONAL_BASE"
+          vp test run apps/web/src/sidebarPersonalization.test.ts apps/web/src/components/sidebar/deviceScope.test.ts packages/source-control-forgejo/src/server/forgejoPullRequests.test.ts packages/source-control-forgejo/src/server/ForgejoSourceControlProvider.test.ts packages/ssh/src/tunnel.launch.test.ts
+  build:
+    needs: [resolve, validate]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            platform: mac
+            arch: arm64
+            target: dmg
+            suffix: arm64.dmg
+          - runner: ubuntu-26.04
+            platform: linux
+            arch: x64
+            target: AppImage
+            suffix: amd64.deb
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    env:
+      NODE_OPTIONS: --max-old-space-size=5120
+      T3CODE_WEB_SOURCEMAP: "0"
+      VERSION: ${{ needs.resolve.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.ref }}
+      - uses: ./.github/actions/setup-ci-deps
+        with:
+          install-args: --filter @t3tools/monorepo --filter '@t3tools/web...' --filter 't3...' --filter '@t3tools/desktop...' --filter './oxlint-plugin-t3code...' --filter './scripts...'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Linux prerequisites
+        if: matrix.platform == 'linux'
+        run: |
+          test "$(. /etc/os-release; echo "$VERSION_ID")" = '26.04'
+          sudo apt-get update
+          sudo apt-get install -y libsecret-1-dev pkg-config imagemagick patchelf libgtk-3-0t64 libnss3 libasound2t64 libgbm1
+      - name: Build only the requested architecture
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          ARCH: ${{ matrix.arch }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          if [ "$PLATFORM" = mac ]; then test "$(uname -m)" = arm64; fi
+          vp run dist:desktop:artifact --platform "$PLATFORM" --target "$TARGET" --arch "$ARCH" --build-version "$VERSION" --output-dir "$RUNNER_TEMP/packages"
+      - name: Sign Apple Silicon app and rebuild its DMG
+        if: matrix.platform == 'mac'
+        run: |
+          stage="$RUNNER_TEMP/personal-sign.noindex"
+          mkdir "$stage"
+          trap 'rm -rf "$stage"' EXIT
+          ditto -x -k "$RUNNER_TEMP/packages/T3-Code-$VERSION-arm64.zip" "$stage"
+          cat > "$RUNNER_TEMP/personal-entitlements.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+          <key>com.apple.security.cs.allow-jit</key><true/>
+          <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
+          <key>com.apple.security.cs.disable-library-validation</key><true/>
+          </dict></plist>
+          PLIST
+          codesign --force --deep --sign - --entitlements "$RUNNER_TEMP/personal-entitlements.plist" "$stage/T3 Code (Beta).app"
+          codesign --verify --deep --strict "$stage/T3 Code (Beta).app"
+          ln -s /Applications "$stage/Applications"
+          hdiutil create -ov -volname 'T3 Code Personal' -srcfolder "$stage" -format UDZO "$RUNNER_TEMP/packages/T3-Code-$VERSION-arm64.dmg"
+      - name: Verify installer
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          if [ "$PLATFORM" = mac ]; then
+            hdiutil verify "$RUNNER_TEMP/packages/T3-Code-$VERSION-arm64.dmg"
+          else
+            test "$(dpkg-deb -f "$RUNNER_TEMP/packages/T3-Code-$VERSION-amd64.deb" Architecture)" = amd64
+          fi
+      - uses: actions/upload-artifact@v6
+        with:
+          name: installer-${{ matrix.platform }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/packages/T3-Code-${{ needs.resolve.outputs.version }}-${{ matrix.suffix }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+  publish:
+    needs: [resolve, validate, build]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v6
+        with:
+          pattern: installer-*
+          path: installers
+          merge-multiple: true
+      - name: Publish only verified installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE: ${{ needs.resolve.outputs.ref }}
+        run: python3 scripts/personal-release.py publish --ref "$CANDIDATE" --directory installers
