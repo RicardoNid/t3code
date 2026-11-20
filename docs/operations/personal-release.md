@@ -26,5 +26,8 @@ not binary builds.
 
 Inspect the Actions run before retrying a persistent failure. A tag that changes
 its upstream commit requires review, rather than a silent rebuild. The scheduler
-runs on GitHub and needs no always-online desktop or stored local PAT. GitHub may
+runs on GitHub and needs no always-online desktop or stored local PAT.
+`PERSONAL_RELEASE_SSH_KEY` holds a write deploy key restricted to this fork,
+used only by the trusted resolver and publisher to push workflow-bearing merges.
+Build/test jobs do not receive it. GitHub Releases use the job-scoped token. GitHub may
 delay scheduled runs; manual dispatch is available when an immediate run is needed.

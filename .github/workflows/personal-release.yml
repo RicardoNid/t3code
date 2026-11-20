@@ -30,6 +30,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ssh-key: ${{ secrets.PERSONAL_RELEASE_SSH_KEY }}
       - name: Controller regression tests
         run: python3 scripts/personal-release.test.py
       - name: Resolve and merge stable upstream
@@ -156,6 +157,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ssh-key: ${{ secrets.PERSONAL_RELEASE_SSH_KEY }}
       - uses: actions/download-artifact@v6
         with:
           pattern: installer-*
