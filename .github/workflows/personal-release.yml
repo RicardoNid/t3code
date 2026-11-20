@@ -1,5 +1,11 @@
 name: Personal fork release
 on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/personal-release.yml
+      - scripts/personal-release.py
+      - scripts/personal-release.test.py
   schedule:
     - cron: "17 * * * *"
   workflow_dispatch:

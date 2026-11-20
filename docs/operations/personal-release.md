@@ -1,7 +1,7 @@
 # Personal fork releases
 
 `.github/workflows/personal-release.yml` runs hourly at minute 17 and supports
-manual dispatch. Only `RicardoNid/t3code` can publish. The controller lives on the
+manual dispatch. Controller changes on `main` also trigger a run. Only `RicardoNid/t3code` can publish. The controller lives on the
 fork's default branch; application changes remain on `feat/device-text-icons`.
 Each run pins the latest stable upstream tag and the personal branch, then merges
 them in the temporary CI checkout. A conflict stops the run for review.
