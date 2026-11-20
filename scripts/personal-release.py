@@ -67,6 +67,7 @@ def release_files(version):
     return {f'T3-Code-{version}-arm64.dmg', f'T3-Code-{version}-arm64.zip',
             f'T3-Code-{version}-amd64.deb', 'T3-Code-x86_64.AppImage',
             f't3-{version}-darwin-arm64.tar.gz', f't3-{version}-linux-x64.tar.gz',
+            f't3-{version}-linux-arm64.tar.gz',
             'latest-mac.yml', 'latest-linux.yml'}
 
 
@@ -173,7 +174,7 @@ def resolve():
                                git('for-each-ref', '--format=%(refname:short)', 'refs/tags').splitlines())
         provenance = {'upstreamTag': tag, 'upstreamSha': upstream, 'forkBase': base,
                       'recipe': recipe, 'version': version, 'releaseTag': f'v{version}',
-                      'platforms': ['macos-arm64', 'ubuntu-26.04-x64']}
+                      'platforms': ['macos-arm64', 'ubuntu-26.04-x64', 'linux-arm64-server']}
         commit = merge_candidate(base, upstream, provenance)
         git('tag', release_tag, commit)
         git('tag', provenance['releaseTag'], commit)

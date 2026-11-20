@@ -9,6 +9,11 @@ on:
   schedule:
     - cron: "17 * * * *"
   workflow_dispatch:
+    inputs:
+      arm64_server_only:
+        description: Build only the ARM64 server runtime for local release assembly
+        type: boolean
+        default: false
 concurrency:
   group: personal-fork-release
   cancel-in-progress: false
@@ -69,6 +74,7 @@ jobs:
           vp test run apps/web/src/sidebarPersonalization.test.ts apps/web/src/components/sidebar/deviceScope.test.ts packages/source-control-forgejo/src/server/forgejoPullRequests.test.ts packages/source-control-forgejo/src/server/ForgejoSourceControlProvider.test.ts packages/ssh/src/tunnel.launch.test.ts
   build:
     needs: [resolve, validate]
+    if: needs.resolve.outputs.needed == 'true' && inputs.arm64_server_only != true
     strategy:
       fail-fast: false
       matrix:
@@ -205,8 +211,56 @@ jobs:
           sudo apt-get install -y xvfb libgtk-3-0t64 libnss3 libasound2t64 libgbm1 libsecret-1-0
           dpkg-deb -x "installers/T3-Code-$VERSION-amd64.deb" "$RUNNER_TEMP/unpacked"
           xvfb-run -a node scripts/smoke-desktop-app.ts --executable "$RUNNER_TEMP/unpacked/opt/T3 Code (Beta)/t3code" --artifacts-dir "$RUNNER_TEMP/launch-check"
+  arm64_server:
+    needs: [resolve, validate]
+    if: needs.resolve.outputs.needed == 'true'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    env:
+      NODE_OPTIONS: --max-old-space-size=5120
+      VERSION: ${{ needs.resolve.outputs.version }}
+      APP_VERSION: ${{ needs.resolve.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.ref }}
+      - uses: ./.github/actions/setup-ci-deps
+        with:
+          install-args: --filter @t3tools/monorepo --filter @t3tools/web... --filter t3... --filter @t3tools/desktop... --filter ./oxlint-plugin-t3code... --filter ./scripts...
+      - uses: dtolnay/rust-toolchain@stable
+      - name: ARM64 build prerequisites
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config patchelf
+      - name: Build and test only the ARM64 server archive
+        run: |
+          test "$(uname -m)" = aarch64
+          node scripts/update-release-package-versions.ts "$VERSION"
+          vp run --filter @t3tools/web build
+          vp run --filter t3 build
+          node apps/server/scripts/cli.ts build-exe --verbose
+          cargo build --locked --release --manifest-path native/resource-monitor/Cargo.toml --target aarch64-unknown-linux-gnu
+          mkdir -p "$RUNNER_TEMP/cli-resource-monitor/linux-arm64"
+          cp native/resource-monitor/target/aarch64-unknown-linux-gnu/release/t3-resource-monitor "$RUNNER_TEMP/cli-resource-monitor/linux-arm64/"
+          node scripts/build-cli-archive.ts --platform linux --arch arm64 --version "$VERSION" --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" --output-dir "$RUNNER_TEMP/packages"
+          node scripts/smoke-cli-archive.ts --archive "$RUNNER_TEMP/packages/t3-$VERSION-linux-arm64.tar.gz" --expect-version "$VERSION"
+      - name: Bundle the isolated verification helper
+        run: |
+          mkdir verify
+          vp exec -- esbuild scripts/smoke-cli-archive.ts --bundle --platform=node --format=esm --target=node24 --banner:js='import { createRequire } from "node:module"; const require = createRequire(import.meta.url);' --outfile=verify/smoke-cli-archive.mjs
+      - uses: actions/upload-artifact@v6
+        with:
+          name: installer-linux-arm64-server
+          path: ${{ runner.temp }}/packages/t3-${{ needs.resolve.outputs.version }}-linux-arm64.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - uses: actions/upload-artifact@v6
+        with:
+          name: verification-linux-arm64
+          path: verify/smoke-cli-archive.mjs
+          if-no-files-found: error
+          retention-days: 3
   publish:
-    needs: [resolve, validate, build, ubuntu_launch]
+    needs: [resolve, validate, build, ubuntu_launch, arm64_server]
     runs-on: ubuntu-26.04
     timeout-minutes: 20
     permissions:

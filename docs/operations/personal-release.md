@@ -8,7 +8,7 @@ them in the temporary CI checkout. A conflict stops the run for review.
 
 Affected checks and personal regressions must pass before packaging. The only supported platforms are macOS Apple Silicon and Ubuntu 26.04 x64.
 Releases include their DMG/DEB installers, macOS ZIP and Linux AppImage update payloads,
-self-contained CLI archives for both platforms, and `latest-mac.yml` / `latest-linux.yml`,
+self-contained CLI archives for both platforms plus a Linux ARM64 server archive, and `latest-mac.yml` / `latest-linux.yml`,
 with `SHA256SUMS` and `personal-release.json`. Feed hashes are computed after signing.
 Release tags use `v<personal-version>` so native updaters can resolve them; recipe tags
 still identify reproducible candidates. macOS uses ad hoc signing without Apple notarization;
@@ -27,7 +27,9 @@ the release remains a draft for review. Published assets are not overwritten.
 
 Failed candidates and drafts are retained for diagnosis; the next scheduled run
 retries an unpublished candidate. CI artifacts expire after three days. Release
-assets remain available for rollback; no Windows, Intel Mac or Linux arm64 asset is published. GitHub's automatically provided source archives are
+assets remain available for rollback; no Windows, Intel Mac or Linux ARM64 desktop installer is published. The ARM64 server
+archive is built on Ubuntu 24.04 ARM64 and also checked on the managed Debian 13 host
+before a local release is published. GitHub's automatically provided source archives are
 not binary builds.
 
 Inspect the Actions run before retrying a persistent failure. A tag that changes
@@ -37,3 +39,8 @@ runs on GitHub and needs no always-online desktop or stored local PAT.
 used only by the trusted resolver and publisher to push workflow-bearing merges.
 Build/test jobs do not receive it. GitHub Releases use the job-scoped token. GitHub may
 delay scheduled runs; manual dispatch is available when an immediate run is needed.
+
+For local release assembly, dispatch with `arm64_server_only=true` to build the ARM64
+server payload without starting desktop jobs or publishing. Normal hourly runs still
+build and verify the complete release. Version allocation skips existing local and CI
+release tags, including unpublished candidates.

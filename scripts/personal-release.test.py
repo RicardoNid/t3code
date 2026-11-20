@@ -86,6 +86,7 @@ class ReleaseTests(unittest.TestCase):
             f'T3-Code-{version}-arm64.dmg', f'T3-Code-{version}-arm64.zip',
             f'T3-Code-{version}-amd64.deb', 'T3-Code-x86_64.AppImage',
             f't3-{version}-darwin-arm64.tar.gz', f't3-{version}-linux-x64.tar.gz',
+            f't3-{version}-linux-arm64.tar.gz',
             'latest-mac.yml', 'latest-linux.yml',
         })
         with self.assertRaises(ValueError):
