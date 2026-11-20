@@ -16,6 +16,25 @@ spec.loader.exec_module(release)
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_update_feeds_hash_the_final_signed_assets(self):
+        import base64
+        import hashlib
+        version = '0.1.11-personal.20261120.5'
+        for platform, names, feed in (
+            ('mac', [f'T3-Code-{version}-arm64.zip', f'T3-Code-{version}-arm64.dmg'], 'latest-mac.yml'),
+            ('linux', ['T3-Code-x64.AppImage', f'T3-Code-{version}-amd64.deb'], 'latest-linux.yml'),
+        ):
+            with tempfile.TemporaryDirectory() as temporary:
+                directory = pathlib.Path(temporary)
+                for name in names:
+                    (directory / name).write_bytes(name.encode())
+                release.prepare_feed(directory, version, platform)
+                manifest = (directory / feed).read_text()
+                self.assertIn(f'version: {version}\n', manifest)
+                for name in names:
+                    self.assertIn(f'url: {name}\n', manifest)
+                    self.assertIn(base64.b64encode(hashlib.sha512(name.encode()).digest()).decode(), manifest)
+
     def test_setup_action_receives_filter_arguments_without_literal_shell_quotes(self):
         workflow = pathlib.Path(__file__).resolve().parent.parent / '.github/workflows/personal-release.yml'
         found = []
@@ -44,7 +63,12 @@ class ReleaseTests(unittest.TestCase):
     def test_asset_policy_rejects_extra_platforms_or_incomplete_builds_before_publication(self):
         version = '0.1.11-personal.20261120.1'
         expected = release.release_files(version)
-        self.assertEqual(expected, {f'T3-Code-{version}-arm64.dmg', f'T3-Code-{version}-amd64.deb'})
+        self.assertEqual(expected, {
+            f'T3-Code-{version}-arm64.dmg', f'T3-Code-{version}-arm64.zip',
+            f'T3-Code-{version}-amd64.deb', 'T3-Code-x64.AppImage',
+            f't3-{version}-darwin-arm64.tar.gz', f't3-{version}-linux-x64.tar.gz',
+            'latest-mac.yml', 'latest-linux.yml',
+        })
         with self.assertRaises(ValueError):
             release.release_files('../../bad')
         for extra in (False, True):

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Resolve and publish verified, two-platform releases of the personal fork."""
 import argparse
+import base64
 import datetime
 import hashlib
 import json
@@ -21,6 +22,13 @@ def git(*args):
 
 
 def api(path):
+    if not os.environ.get('GH_TOKEN'):
+        result = subprocess.run(['gh', 'api', path], text=True, capture_output=True)
+        if result.returncode:
+            if '(HTTP 404)' in result.stderr:
+                return None
+            raise RuntimeError('GitHub API request failed: ' + result.stderr.strip())
+        return json.loads(result.stdout)
     request = urllib.request.Request('https://api.github.com/' + path, headers={
         'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
         'Accept': 'application/vnd.github+json', 'User-Agent': 't3-personal-release'})
@@ -41,7 +49,35 @@ def integrated(base, marker, provenance, upstream, recipe):
 def release_files(version):
     if not re.fullmatch(r'\d+\.\d+\.\d+-personal\.\d{8}\.\d+', version):
         raise ValueError('Unexpected personal build version')
-    return {f'T3-Code-{version}-arm64.dmg', f'T3-Code-{version}-amd64.deb'}
+    return {f'T3-Code-{version}-arm64.dmg', f'T3-Code-{version}-arm64.zip',
+            f'T3-Code-{version}-amd64.deb', 'T3-Code-x64.AppImage',
+            f't3-{version}-darwin-arm64.tar.gz', f't3-{version}-linux-x64.tar.gz',
+            'latest-mac.yml', 'latest-linux.yml'}
+
+
+def digest_file(path, algorithm='sha256'):
+    digest = hashlib.new(algorithm)
+    with path.open('rb') as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(chunk)
+    return digest
+
+
+def prepare_feed(directory, version, platform):
+    release_files(version)
+    directory = pathlib.Path(directory)
+    names = ([f'T3-Code-{version}-arm64.zip', f'T3-Code-{version}-arm64.dmg']
+             if platform == 'mac' else ['T3-Code-x64.AppImage', f'T3-Code-{version}-amd64.deb'])
+    files = []
+    for name in names:
+        path = directory / name
+        files.append({'url': name, 'sha512': base64.b64encode(digest_file(path, 'sha512').digest()).decode(),
+                      'size': path.stat().st_size})
+    lines = [f'version: {version}', 'files:']
+    for asset in files:
+        lines.extend([f'  - url: {asset["url"]}', f'    sha512: {asset["sha512"]}', f'    size: {asset["size"]}'])
+    lines.extend([f'path: {files[0]["url"]}', f'sha512: {files[0]["sha512"]}'])
+    (directory / ('latest-mac.yml' if platform == 'mac' else 'latest-linux.yml')).write_text('\n'.join(lines) + '\n')
 
 
 def emit(values):
@@ -75,8 +111,9 @@ def resolve():
     tag = latest['tag_name']
     if not re.fullmatch(r'v\d+\.\d+\.\d+', tag):
         raise RuntimeError('Unexpected upstream tag')
-    git('config', 'user.name', 'T3 Personal Release')
-    git('config', 'user.email', 'actions@users.noreply.github.com')
+    for key in ('AUTHOR', 'COMMITTER'):
+        os.environ.setdefault(f'GIT_{key}_NAME', 'T3 Personal Release')
+        os.environ.setdefault(f'GIT_{key}_EMAIL', 'actions@users.noreply.github.com')
     git('fetch', 'origin', f'+refs/heads/{BASE}:refs/remotes/origin/{BASE}', '--tags')
     base = git('rev-parse', f'origin/{BASE}')
     git('-c', 'http.https://github.com/.extraheader=', 'fetch',
@@ -111,12 +148,13 @@ def resolve():
     else:
         version = tag[1:] + '-personal.' + datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d') + '.' + os.environ['GITHUB_RUN_NUMBER']
         provenance = {'upstreamTag': tag, 'upstreamSha': upstream, 'forkBase': base,
-                      'recipe': recipe, 'version': version, 'releaseTag': release_tag,
+                      'recipe': recipe, 'version': version, 'releaseTag': f'v{version}',
                       'platforms': ['macos-arm64', 'ubuntu-26.04-x64']}
         commit = merge_candidate(base, upstream, provenance)
         git('tag', release_tag, commit)
+        git('tag', provenance['releaseTag'], commit)
         git('push', 'origin', f'{commit}:refs/heads/personal-candidates/{release_tag}',
-            f'refs/tags/{release_tag}')
+            f'refs/tags/{release_tag}', f'refs/tags/{provenance["releaseTag"]}')
     emit({'needed': 'true', 'ref': commit, 'base': provenance['forkBase'],
           'version': provenance['version'], 'tag': release_tag})
     print(json.dumps(provenance, indent=2))
@@ -128,7 +166,7 @@ def publish(args):
     expected = release_files(metadata['version'])
     actual = {p.name for p in directory.iterdir() if p.is_file()}
     if actual != expected:
-        raise RuntimeError(f'Only the two requested installers may be published: {actual}')
+        raise RuntimeError(f'Only the requested platform assets and metadata may be published: {actual}')
     current = git('ls-remote', 'origin', f'refs/heads/{BASE}').split()[0]
     if current not in (metadata['forkBase'], args.ref):
         raise RuntimeError('Personal branch moved during build; refusing stale publication')
@@ -136,7 +174,7 @@ def publish(args):
     assets = []
     for name in sorted(expected):
         path = directory / name
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        digest = digest_file(path).hexdigest()
         checksums.append(f'{digest}  {name}')
         assets.append({'name': name, 'bytes': path.stat().st_size, 'sha256': digest})
     (directory / 'SHA256SUMS').write_text('\n'.join(checksums) + '\n')
@@ -145,7 +183,8 @@ def publish(args):
     notes = directory / 'notes.txt'
     notes.write_text(f"上游 {metadata['upstreamTag']} + 个人版功能\n\n"
                      f"源码：{args.ref}\n仅提供 macOS Apple Silicon DMG 与 Ubuntu 26.04 x64 DEB。\n"
-                     "macOS 使用临时签名，未进行 Apple 公证。不会自动安装。\n")
+                     "包含相同平台的原生更新载荷、CLI 运行包与更新元数据。\n"
+                     "macOS 使用临时签名，未进行 Apple 公证；Squirrel 自动安装仍需有效签名。\n")
     old = api(f'repos/{REPO}/releases/tags/{metadata["releaseTag"]}')
     if old and not old['draft']:
         raise RuntimeError('Published release is immutable')
@@ -158,7 +197,7 @@ def publish(args):
     uploaded = api(f'repos/{REPO}/releases/tags/{metadata["releaseTag"]}')
     allowed = expected | {'SHA256SUMS', 'personal-release.json'}
     if {a['name'] for a in uploaded['assets']} != allowed:
-        raise RuntimeError('Release assets differ from the two-platform allowlist')
+        raise RuntimeError('Release assets differ from the two-platform update allowlist')
     if current != args.ref:
         git('push', 'origin', f'{args.ref}:refs/heads/{BASE}')
     subprocess.run(['gh', 'release', 'edit', metadata['releaseTag'], '--repo', REPO,
@@ -170,12 +209,18 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
     commands.add_parser('resolve')
+    prepare = commands.add_parser('prepare-feed')
+    prepare.add_argument('--directory', required=True)
+    prepare.add_argument('--version', required=True)
+    prepare.add_argument('--platform', choices=['mac', 'linux'], required=True)
     final = commands.add_parser('publish')
     final.add_argument('--ref', required=True)
     final.add_argument('--directory', required=True)
     args = parser.parse_args()
     if args.command == 'resolve':
         resolve()
+    elif args.command == 'prepare-feed':
+        prepare_feed(args.directory, args.version, args.platform)
     else:
         publish(args)
 

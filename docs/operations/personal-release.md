@@ -6,9 +6,14 @@ fork's default branch; application changes remain on `feat/device-text-icons`.
 Each run pins the latest stable upstream tag and the personal branch, then merges
 them in the temporary CI checkout. A conflict stops the run for review.
 
-Affected checks and personal regressions must pass before packaging. Only macOS
-Apple Silicon DMG and Ubuntu 26.04 x64 DEB are uploaded, with `SHA256SUMS` and
-`personal-release.json`. macOS uses ad hoc signing without Apple notarization.
+Affected checks and personal regressions must pass before packaging. The only supported platforms are macOS Apple Silicon and Ubuntu 26.04 x64.
+Releases include their DMG/DEB installers, macOS ZIP and Linux AppImage update payloads,
+self-contained CLI archives for both platforms, and `latest-mac.yml` / `latest-linux.yml`,
+with `SHA256SUMS` and `personal-release.json`. Feed hashes are computed after signing.
+Release tags use `v<personal-version>` so native updaters can resolve them; recipe tags
+still identify reproducible candidates. macOS uses ad hoc signing without Apple notarization;
+these builds deliberately do not advertise native Squirrel updates until a properly signed
+build is available. They can still be installed by the managed maintenance procedure.
 The Linux build uses Ubuntu 24.04 to preserve the existing glibc ceiling, then
 launches the shipped DEB on Ubuntu 26.04. The shipped DMG also receives an isolated
 launch check. No personal machine is updated or restarted, and no PR is created.
@@ -22,8 +27,7 @@ the release remains a draft for review. Published assets are not overwritten.
 
 Failed candidates and drafts are retained for diagnosis; the next scheduled run
 retries an unpublished candidate. CI artifacts expire after three days. Release
-assets remain available for rollback; no Windows, Intel Mac, Linux arm64, ZIP or
-AppImage asset is published. GitHub's automatically provided source archives are
+assets remain available for rollback; no Windows, Intel Mac or Linux arm64 asset is published. GitHub's automatically provided source archives are
 not binary builds.
 
 Inspect the Actions run before retrying a persistent failure. A tag that changes

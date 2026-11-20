@@ -93,6 +93,12 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ needs.resolve.outputs.ref }}
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: .personal-controller
+          sparse-checkout: scripts/personal-release.py
+          sparse-checkout-cone-mode: false
       - uses: ./.github/actions/setup-ci-deps
         with:
           install-args: --filter @t3tools/monorepo --filter @t3tools/web... --filter t3... --filter @t3tools/desktop... --filter ./oxlint-plugin-t3code... --filter ./scripts...
@@ -128,6 +134,8 @@ jobs:
           PLIST
           codesign --force --deep --sign - --entitlements "$RUNNER_TEMP/personal-entitlements.plist" "$stage/T3 Code (Beta).app"
           codesign --verify --deep --strict "$stage/T3 Code (Beta).app"
+          rm "$RUNNER_TEMP/packages/T3-Code-$VERSION-arm64.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$stage/T3 Code (Beta).app" "$RUNNER_TEMP/packages/T3-Code-$VERSION-arm64.zip"
           ln -s /Applications "$stage/Applications"
           hdiutil create -ov -volname 'T3 Code Personal' -srcfolder "$stage" -format UDZO "$RUNNER_TEMP/packages/T3-Code-$VERSION-arm64.dmg"
       - name: Verify installer
@@ -146,10 +154,30 @@ jobs:
           hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$RUNNER_TEMP/packages/T3-Code-$VERSION-arm64.dmg"
           trap 'hdiutil detach "$mount" -force >/dev/null || true' EXIT
           node scripts/smoke-desktop-app.ts --executable "$mount/T3 Code (Beta).app/Contents/MacOS/T3 Code (Beta)" --artifacts-dir "$RUNNER_TEMP/launch-check"
+      - name: Build and test the self-contained server updater payload
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          RESOURCE_KEY: ${{ matrix.platform == 'mac' && 'darwin-arm64' || 'linux-x64' }}
+          RUST_TARGET: ${{ matrix.platform == 'mac' && 'aarch64-apple-darwin' || 'x86_64-unknown-linux-gnu' }}
+        run: |
+          node scripts/update-release-package-versions.ts "$VERSION"
+          node apps/server/scripts/cli.ts build-exe --verbose
+          mkdir -p "$RUNNER_TEMP/cli-resource-monitor/$RESOURCE_KEY"
+          cp "native/resource-monitor/target/$RUST_TARGET/release/t3-resource-monitor" "$RUNNER_TEMP/cli-resource-monitor/$RESOURCE_KEY/"
+          node scripts/build-cli-archive.ts --platform "$PLATFORM" --arch "${{ matrix.arch }}" --version "$VERSION" --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" --output-dir "$RUNNER_TEMP/packages"
+          node scripts/smoke-cli-archive.ts --archive "$RUNNER_TEMP/packages/t3-$VERSION-$RESOURCE_KEY.tar.gz" --expect-version "$VERSION"
+      - name: Prepare final update metadata
+        run: python3 .personal-controller/scripts/personal-release.py prepare-feed --directory "$RUNNER_TEMP/packages" --version "$VERSION" --platform "${{ matrix.platform }}"
       - uses: actions/upload-artifact@v6
         with:
           name: installer-${{ matrix.platform }}-${{ matrix.arch }}
-          path: ${{ runner.temp }}/packages/T3-Code-${{ needs.resolve.outputs.version }}-${{ matrix.suffix }}
+          path: |
+            ${{ runner.temp }}/packages/T3-Code-*.dmg
+            ${{ runner.temp }}/packages/T3-Code-*.zip
+            ${{ runner.temp }}/packages/T3-Code-*.deb
+            ${{ runner.temp }}/packages/T3-Code-x64.AppImage
+            ${{ runner.temp }}/packages/t3-*.tar.gz
+            ${{ runner.temp }}/packages/latest-*.yml
           if-no-files-found: error
           compression-level: 0
           retention-days: 3
