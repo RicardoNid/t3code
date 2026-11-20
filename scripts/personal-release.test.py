@@ -16,6 +16,17 @@ spec.loader.exec_module(release)
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_draft_lookup_uses_the_release_list_when_the_tag_endpoint_is_published_only(self):
+        draft = {'id': 12, 'tag_name': 'v0.1.11-personal.20261120.6', 'draft': True, 'assets': []}
+        def response(path):
+            if '/releases/tags/' in path:
+                return None
+            if '/releases?' in path:
+                return [draft]
+            return draft
+        with patch.object(release, 'api', side_effect=response):
+            self.assertEqual(release.find_release(draft['tag_name']), draft)
+
     def test_update_feeds_hash_the_final_signed_assets(self):
         import base64
         import hashlib

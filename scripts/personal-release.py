@@ -46,6 +46,21 @@ def integrated(base, marker, provenance, upstream, recipe):
             and provenance.get('recipe') == recipe)
 
 
+def find_release(tag):
+    published = api(f'repos/{REPO}/releases/tags/{tag}')
+    if published:
+        return published
+    page = 1
+    while True:
+        releases = api(f'repos/{REPO}/releases?per_page=100&page={page}') or []
+        for release in releases:
+            if release['tag_name'] == tag:
+                return api(f'repos/{REPO}/releases/{release["id"]}')
+        if len(releases) < 100:
+            return None
+        page += 1
+
+
 def release_files(version):
     if not re.fullmatch(r'\d+\.\d+\.\d+-personal\.\d{8}\.\d+', version):
         raise ValueError('Unexpected personal build version')
@@ -127,7 +142,7 @@ def resolve():
             raise RuntimeError('Upstream tag changed; review required')
         marker = git('log', '-1', '--format=%H', base, '--', PROVENANCE)
         if integrated(base, marker, previous, upstream, recipe):
-            published = api(f'repos/{REPO}/releases/tags/{previous["releaseTag"]}')
+            published = find_release(previous['releaseTag'])
             if published and not published['draft']:
                 emit({'needed': 'false'})
                 print('Already released this upstream/fork/recipe combination')
@@ -178,14 +193,14 @@ def publish(args):
         checksums.append(f'{digest}  {name}')
         assets.append({'name': name, 'bytes': path.stat().st_size, 'sha256': digest})
     (directory / 'SHA256SUMS').write_text('\n'.join(checksums) + '\n')
-    metadata.update(sourceCommit=args.ref, assets=assets)
+    metadata.update(sourceCommit=args.ref, assets=assets, publisherCommit=git('rev-parse', 'HEAD'))
     (directory / 'personal-release.json').write_text(json.dumps(metadata, indent=2) + '\n')
     notes = directory / 'notes.txt'
     notes.write_text(f"上游 {metadata['upstreamTag']} + 个人版功能\n\n"
                      f"源码：{args.ref}\n仅提供 macOS Apple Silicon DMG 与 Ubuntu 26.04 x64 DEB。\n"
                      "包含相同平台的原生更新载荷、CLI 运行包与更新元数据。\n"
                      "macOS 使用临时签名，未进行 Apple 公证；Squirrel 自动安装仍需有效签名。\n")
-    old = api(f'repos/{REPO}/releases/tags/{metadata["releaseTag"]}')
+    old = find_release(metadata['releaseTag'])
     if old and not old['draft']:
         raise RuntimeError('Published release is immutable')
     if not old:
@@ -194,7 +209,7 @@ def publish(args):
     subprocess.run(['gh', 'release', 'upload', metadata['releaseTag'], '--repo', REPO,
                     *[str(directory / name) for name in sorted(expected)], str(directory / 'SHA256SUMS'),
                     str(directory / 'personal-release.json'), '--clobber'], check=True)
-    uploaded = api(f'repos/{REPO}/releases/tags/{metadata["releaseTag"]}')
+    uploaded = find_release(metadata['releaseTag'])
     allowed = expected | {'SHA256SUMS', 'personal-release.json'}
     if {a['name'] for a in uploaded['assets']} != allowed:
         raise RuntimeError('Release assets differ from the two-platform update allowlist')
