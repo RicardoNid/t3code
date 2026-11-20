@@ -112,6 +112,8 @@ export interface RemoteT3RunnerOptions {
   readonly nodeEngineRange?: string | null;
   readonly archiveVersion?: string | null;
   readonly releaseBaseUrl?: string | null;
+  /** Attach to a healthy default-home server before resolving any release runtime. */
+  readonly reuseRunningServer?: boolean;
 }
 
 export interface SshEnvironmentManagerOptions {
@@ -463,6 +465,33 @@ ensure_remote_node_path() {
 }
 `;
 
+// Personal desktop builds can be ahead of the published CLI. Existing servers
+// only need a forward, and macOS login shells may have curl without Node.
+const REMOTE_REUSE_RUNNING_SERVER_SCRIPT = `if [ -f "$DEFAULT_RUNTIME_FILE" ] && command -v curl >/dev/null 2>&1; then
+  REUSE_PID="$(sed -n 's/.*"pid"[[:space:]]*:[[:space:]]*\\([0-9][0-9]*\\)[[:space:]]*[,}].*/\\1/p' "$DEFAULT_RUNTIME_FILE")"
+  REUSE_PORT="$(sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\\([0-9][0-9]*\\)[[:space:]]*[,}].*/\\1/p' "$DEFAULT_RUNTIME_FILE")"
+  REUSE_ORIGIN="$(sed -n 's/.*"origin"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p' "$DEFAULT_RUNTIME_FILE")"
+  case "$REUSE_PID:$REUSE_PORT" in
+    *[!0-9:]*|:*) REUSE_PID="" ;;
+  esac
+  case "$REUSE_ORIGIN" in
+    "http://127.0.0.1:$REUSE_PORT"|"http://localhost:$REUSE_PORT") ;;
+    *) REUSE_PID="" ;;
+  esac
+  if [ -n "$REUSE_PID" ] && [ -n "$REUSE_PORT" ] && [ "$REUSE_PID" -gt 0 ] &&
+     [ "$REUSE_PORT" -gt 0 ] && [ "$REUSE_PORT" -le 65535 ] && kill -0 "$REUSE_PID" 2>/dev/null; then
+    REUSE_STATUS="$(curl -sS --noproxy '*' --connect-timeout 2 --max-time 2 --output /dev/null --write-out '%{http_code}' "$REUSE_ORIGIN/.well-known/t3/environment" 2>/dev/null || true)"
+    case "$REUSE_STATUS" in
+      2[0-9][0-9])
+        printf '{"remotePort":%s,"serverKind":"external"}\\n' "$REUSE_PORT"
+        exit 0
+        ;;
+    esac
+    printf 'The existing remote T3 server is running but did not answer its environment endpoint. Retry once it is ready; the server was left running.\\n' >&2
+    exit 1
+  fi
+fi`;
+
 const REMOTE_RUNNER_SCRIPT = `#!/bin/sh
 set -eu
 @@T3_NODE_ENV_SCRIPT@@
@@ -621,6 +650,7 @@ RUNNER_FILE="$STATE_DIR/run-t3.sh"
 RUNNER_NEXT="$STATE_DIR/run-t3.next.$$"
 LAUNCH_LOCK="$DEFAULT_SERVER_HOME/ssh-launch/.launch.lock"
 LAUNCH_BREAK_LOCK="$LAUNCH_LOCK.break"
+@@T3_REUSE_RUNNING_SERVER_SCRIPT@@
 @@T3_ENSURE_T3_HOME_SCRIPT@@
 mkdir -p "$STATE_DIR"
 cleanup_launch() {
@@ -1158,6 +1188,9 @@ export function buildRemoteLaunchScript(input?: RemoteT3RunnerOptions): string {
     T3_UPDATE_TTL_MS: String(DESKTOP_UPDATE_IN_PROGRESS_TTL_MS),
     T3_UPDATE_TTL_SECONDS: String(DESKTOP_UPDATE_IN_PROGRESS_TTL_MS / 1000),
     T3_ARCHIVE_MODE: isNodeScriptRunner(input) ? "0" : "1",
+    T3_REUSE_RUNNING_SERVER_SCRIPT: input?.reuseRunningServer
+      ? REMOTE_REUSE_RUNNING_SERVER_SCRIPT
+      : "",
     T3_NODE_ENV_SCRIPT: buildRemoteNodeEnvScript(input),
     T3_RUNNER_SCRIPT: stripTrailingNewlines(buildRemoteT3RunnerScript(input)),
     T3_PICK_PORT_SCRIPT: stripTrailingNewlines(REMOTE_PICK_PORT_SCRIPT),
@@ -2012,7 +2045,7 @@ const makeSshEnvironmentManager = Effect.fn("ssh/tunnel.SshEnvironmentManager.ma
             forceKillAfter: TUNNEL_SHUTDOWN_TIMEOUT_MS,
           })
           .pipe(Effect.ignore);
-        if (!stopRemote) {
+        if (!stopRemote || tunnelEntry.remoteServerKind === "external") {
           return;
         }
         yield* Effect.logDebug("ssh.environment.tunnel.finalizer.start", {
@@ -2206,11 +2239,18 @@ const makeSshEnvironmentManager = Effect.fn("ssh/tunnel.SshEnvironmentManager.ma
             yield* closeTunnelEntry(entry);
           }).pipe(Effect.uninterruptible);
         }
-        yield* runWithSshAuth({
-          key,
-          target: resolvedTarget,
-          operation: (authOptions) => stopRemoteServer(resolvedTarget, authOptions),
-        });
+        const runner =
+          options.resolveCliRunner === undefined ? undefined : yield* options.resolveCliRunner;
+        if (
+          entry?.remoteServerKind !== "external" &&
+          !(entry === null && runner?.reuseRunningServer)
+        ) {
+          yield* runWithSshAuth({
+            key,
+            target: resolvedTarget,
+            operation: (authOptions) => stopRemoteServer(resolvedTarget, authOptions),
+          });
+        }
         yield* Effect.logInfo("ssh.environment.disconnect.succeeded", {
           ...sshTargetLogFields(resolvedTarget),
           key,

@@ -30,9 +30,12 @@ const packagedEnvironment = DesktopEnvironment.DesktopEnvironment.pipe(
 );
 
 describe("resolveDesktopSshCliRunner", () => {
-  it.effect.each(["0.0.22", "0.0.22-personal.20261120.1"])(
-    "downloads the matching remote runner from the release mirror for %s",
-    (appVersion) =>
+  it.effect.each([
+    { appVersion: "0.0.22", archiveVersion: "0.0.22", personal: false },
+    { appVersion: "0.1.11-personal.20261120.2", archiveVersion: "0.1.10", personal: true },
+  ])(
+    "downloads the matching remote runner from the release mirror for $appVersion",
+    ({ appVersion, archiveVersion, personal }) =>
       Effect.gen(function* () {
         const environment = yield* packagedEnvironment;
 
@@ -44,7 +47,8 @@ describe("resolveDesktopSshCliRunner", () => {
         );
 
         assert.deepStrictEqual(runner, {
-          archiveVersion: "0.0.22",
+          archiveVersion,
+          ...(personal ? { reuseRunningServer: true } : {}),
           releaseBaseUrl: "https://mirror.example.com/t3code",
         });
       }),

@@ -92,8 +92,10 @@ export const resolveDesktopSshCliRunner = (
     };
   }
   const releaseBaseUrl = env[CLI_RELEASE_BASE_URL_ENV]?.trim() || undefined;
+  const archiveVersion = remoteArchiveVersion(environment.appVersion);
   return {
-    archiveVersion: remoteArchiveVersion(environment.appVersion),
+    archiveVersion,
+    ...(archiveVersion === environment.appVersion ? {} : { reuseRunningServer: true }),
     ...(releaseBaseUrl === undefined ? {} : { releaseBaseUrl }),
   };
 };

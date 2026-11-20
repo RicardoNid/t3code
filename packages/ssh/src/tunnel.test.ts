@@ -901,6 +901,58 @@ describe("ssh tunnel scripts", () => {
     }),
   );
 
+  it.effect.each([
+    { serverKind: "external", disconnect: true, connected: true, expectedStops: 0 },
+    { serverKind: "external", disconnect: false, connected: true, expectedStops: 0 },
+    { serverKind: "external", disconnect: true, connected: false, expectedStops: 0 },
+    { serverKind: "managed", disconnect: true, connected: true, expectedStops: 1 },
+    { serverKind: "managed", disconnect: false, connected: true, expectedStops: 1 },
+  ] as const)(
+    "stops only owned servers when closing a personal connection ($serverKind, disconnect=$disconnect, connected=$connected)",
+    ({ serverKind, disconnect, connected, expectedStops }) =>
+      Effect.gen(function* () {
+        let stops = 0;
+        let tunnelKilled = false;
+        const spawner = ChildProcessSpawner.make((command) => {
+          const args = commandArgs(command);
+          if (args.includes("-G")) return Effect.succeed(makeSuccessfulProcess(""));
+          if (args.includes("-N")) {
+            return Effect.succeed(
+              makeRunningProcess(() => {
+                tunnelKilled = true;
+              }),
+            );
+          }
+          if (args.includes("-c")) {
+            return Effect.succeed(
+              makeSuccessfulProcess(JSON.stringify({ remotePort: 3773, serverKind })),
+            );
+          }
+          stops += 1;
+          return Effect.succeed(makeSuccessfulProcess('{"stopped":true}\n'));
+        });
+        const layer = Layer.mergeAll(
+          NodeServices.layer,
+          NodeCrypto.layer,
+          Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner),
+          Layer.succeed(HttpClient.HttpClient, testHttpClient),
+          Layer.succeed(NetService.NetService, testNetService),
+          SshAuth.SshPasswordPrompt.disabledLayer,
+          SshTunnel.SshEnvironmentManager.layer({
+            resolveCliRunner: Effect.succeed({ ...ARCHIVE, reuseRunningServer: true }),
+          }),
+        );
+        yield* Effect.gen(function* () {
+          const manager = yield* SshTunnel.SshEnvironmentManager;
+          const target = { alias: "devbox", hostname: "devbox", username: null, port: null };
+          if (connected) yield* manager.ensureEnvironment(target, { issuePairingToken: false });
+          if (disconnect) yield* manager.disconnectEnvironment(target);
+        }).pipe(Effect.provide(layer), Effect.scoped);
+        assert.equal(stops, expectedStops);
+        assert.equal(tunnelKilled, connected);
+      }),
+  );
+
   it.effect("reconnects a saved alias through the port its ssh config names now", () =>
     Effect.gen(function* () {
       let configPort = 53_791;
@@ -1677,10 +1729,12 @@ const canBind = (port) =>
     });
   });
 
-  const runScript = (home: string, args: ReadonlyArray<string>) =>
+  const runScript = (home: string, args: ReadonlyArray<string>, env?: NodeJS.ProcessEnv) =>
     Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-      const child = yield* spawner.spawn(ChildProcess.make("sh", args, { env: { HOME: home } }));
+      const child = yield* spawner.spawn(
+        ChildProcess.make("/bin/sh", args, { env: { HOME: home, ...env } }),
+      );
       const collect = (stream: Stream.Stream<Uint8Array, PlatformError.PlatformError>) =>
         stream.pipe(Stream.decodeText(), Stream.mkString);
       const [stdout, stderr, exitCode] = yield* Effect.all(
@@ -1742,7 +1796,7 @@ const canBind = (port) =>
           launchedPids.add(pid);
           return pid;
         });
-      return { connect, readManagedPid, readServerVersion };
+      return { connect, readManagedPid, readServerVersion, fs, root, home, stateDir };
     });
 
   it.live.skipIf(windowsHost)(
@@ -1762,6 +1816,87 @@ const canBind = (port) =>
         assert.equal(yield* readServerVersion, "0.1.6");
       }).pipe(Effect.provide(NodeServices.layer)),
   );
+
+  for (const input of [
+    { host: "lenovo-px", desktopOnly: false, managed: true, ready: true },
+    { host: "ltr-macbook-air", desktopOnly: true, managed: false, ready: true },
+    { host: "lab-edge-01", desktopOnly: false, managed: false, ready: true },
+    { host: "a temporarily unready managed host", desktopOnly: false, managed: true, ready: false },
+  ]) {
+    it.live.skipIf(windowsHost)(
+      `reuses ${input.host}'s running server without Node or a release download`,
+      () =>
+        Effect.gen(function* () {
+          const { connect, readServerVersion, fs, root, home, stateDir } = yield* prepareLaunch([
+            "0.1.6",
+          ]);
+          const pid = yield* connect("0.1.6");
+          const runner = yield* fs.readFileString(`${stateDir}/run-t3.sh`);
+          if (input.desktopOnly) {
+            yield* fs.writeFileString(`${home}/.t3/ssh-launch/desktop-only`, "");
+          }
+          if (!input.managed) {
+            yield* fs.writeFileString(`${stateDir}/managed`, "external\n");
+          }
+          // These are the tools present in the hosts' non-interactive login PATHs.
+          // Exclude Node even when this test's own process was launched through it.
+          const bin = `${root}/no-node-bin`;
+          yield* fs.makeDirectory(bin);
+          for (const tool of ["cat", "sed", "mkdir", "rm", "chmod", "uname", "tar", "mktemp"]) {
+            const executable = NodeChildProcess.execFileSync(
+              "/bin/sh",
+              ["-c", `command -v ${tool}`],
+              {
+                encoding: "utf8",
+              },
+            ).trim();
+            yield* fs.symlink(executable, `${bin}/${tool}`);
+          }
+          const curl = NodeChildProcess.execFileSync("/bin/sh", ["-c", "command -v curl"], {
+            encoding: "utf8",
+          }).trim();
+          const requests = `${root}/curl-requests`;
+          yield* fs.writeFileString(
+            `${bin}/curl`,
+            `#!/bin/sh
+printf '%s\\n' "$*" >> '${requests}'
+case "$*" in *SHA256SUMS*|*tar.gz*) exit 91 ;; esac
+if [ "$T3_TEST_READY" = "no" ]; then printf '503'; exit 0; fi
+exec '${curl}' "$@"
+`,
+          );
+          yield* fs.chmod(`${bin}/curl`, 0o755);
+          const launch = `${root}/reuse.sh`;
+          yield* fs.writeFileString(
+            launch,
+            SshTunnel.buildRemoteLaunchScript({
+              archiveVersion: "9.9.9",
+              releaseBaseUrl: "http://127.0.0.1:9",
+              reuseRunningServer: true,
+            }),
+          );
+          const result = yield* runScript(home, [launch, "test-state"], {
+            PATH: bin,
+            http_proxy: "http://127.0.0.1:9",
+            HTTP_PROXY: "http://127.0.0.1:9",
+            ALL_PROXY: "http://127.0.0.1:9",
+            all_proxy: "http://127.0.0.1:9",
+            NO_PROXY: "",
+            no_proxy: "",
+          });
+          assert.equal(result.exitCode, 0, result.stderr);
+          assert.equal(JSON.parse(result.stdout).serverKind, "external");
+          assert.isTrue(isAlive(pid));
+          assert.equal(yield* readServerVersion, "0.1.6");
+          assert.equal(yield* fs.readFileString(`${stateDir}/run-t3.sh`), runner);
+          assert.isFalse(yield* fs.exists(`${home}/.t3/runtime/versions/9.9.9`));
+          const requested = yield* fs.readFileString(requests);
+          assert.include(requested, "--noproxy *");
+          assert.notInclude(requested, "SHA256SUMS");
+          assert.notInclude(requested, "tar.gz");
+        }).pipe(Effect.provide(NodeServices.layer)),
+    );
+  }
 
   // An NFS home can carry a ~/.t3 symlink whose target exists only on another host.
   it.live.skipIf(windowsHost)("launches through a ~/.t3 symlink whose target is missing", () =>
