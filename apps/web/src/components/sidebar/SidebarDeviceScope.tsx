@@ -1,4 +1,5 @@
 import { MonitorIcon } from "lucide-react";
+import { T, useGT } from "gt-react";
 import type { SidebarDeviceGroup } from "../../sidebarPersonalization";
 import {
   Select,
@@ -22,6 +23,7 @@ export function SidebarDeviceScope(props: {
   value: string | null;
   onChange: (value: string | null) => void;
 }) {
+  const gt = useGT();
   const groupedIds = new Set(
     props.groups.flatMap((group) => group.members.map((member) => member.environmentId)),
   );
@@ -30,10 +32,10 @@ export function SidebarDeviceScope(props: {
   const selectedGroup = props.groups.find((group) => `group:${group.id}` === props.value);
   const status = (device: (typeof props.devices)[number]) =>
     !device.connected
-      ? "Disconnected · activity unknown"
+      ? gt("Disconnected · activity unknown")
       : !device.live
-        ? "Loading activity…"
-        : `${device.active} active`;
+        ? gt("Loading activity…")
+        : gt("{count} active", { count: device.active });
   const groupStatus = (group: SidebarDeviceGroup) => {
     const members = new Set(group.members.map((member) => member.environmentId));
     const known = props.devices.filter(
@@ -41,7 +43,13 @@ export function SidebarDeviceScope(props: {
     );
     const active = known.reduce((sum, device) => sum + device.active, 0);
     const unknown = members.size - known.length;
-    return `${members.size} devices · ${active} active${unknown > 0 ? ` · ${unknown} activity unknown` : ""}`;
+    return unknown > 0
+      ? gt("{devices} devices · {active} active · {unknown} activity unknown", {
+          devices: members.size,
+          active,
+          unknown,
+        })
+      : gt("{devices} devices · {active} active", { devices: members.size, active });
   };
   return (
     <div className="px-2 pb-1">
@@ -49,23 +57,27 @@ export function SidebarDeviceScope(props: {
         value={props.value ?? "all"}
         onValueChange={(value) => props.onChange(value === "all" ? null : value)}
       >
-        <SelectTrigger size="compact" aria-label="Filter threads by device">
+        <SelectTrigger size="compact" aria-label={gt("Filter threads by device")}>
           <MonitorIcon />
           <SelectValue>
             {props.value === null
-              ? "All devices"
+              ? gt("All devices")
               : (selectedGroup?.name ??
                 selected?.label ??
                 (props.value.startsWith("group:")
-                  ? "Unavailable device group"
-                  : "Unavailable device"))}
+                  ? gt("Unavailable device group")
+                  : gt("Unavailable device")))}
           </SelectValue>
         </SelectTrigger>
         <SelectPopup>
-          <SelectItem value="all">All devices</SelectItem>
+          <SelectItem value="all">
+            <T>All devices</T>
+          </SelectItem>
           {props.groups.length > 0 ? (
             <SelectGroup>
-              <SelectGroupLabel>Device groups</SelectGroupLabel>
+              <SelectGroupLabel>
+                <T>Device groups</T>
+              </SelectGroupLabel>
               {props.groups.map((group) => (
                 <SelectItem key={group.id} value={`group:${group.id}`}>
                   <span className="flex flex-col">
@@ -79,7 +91,9 @@ export function SidebarDeviceScope(props: {
           {ungrouped.length > 0 ? (
             <SelectGroup>
               {props.groups.length > 0 ? (
-                <SelectGroupLabel>Ungrouped devices</SelectGroupLabel>
+                <SelectGroupLabel>
+                  <T>Ungrouped devices</T>
+                </SelectGroupLabel>
               ) : null}
               {ungrouped.map((device) => (
                 <SelectItem key={device.environmentId} value={device.environmentId}>
@@ -93,8 +107,9 @@ export function SidebarDeviceScope(props: {
           ) : null}
           {props.value !== null && !selected && !selectedGroup ? (
             <SelectItem value={props.value}>
-              Unavailable {props.value.startsWith("group:") ? "device group" : "device"} · activity
-              unknown
+              {props.value.startsWith("group:")
+                ? gt("Unavailable device group · activity unknown")
+                : gt("Unavailable device · activity unknown")}
             </SelectItem>
           ) : null}
         </SelectPopup>
@@ -102,15 +117,16 @@ export function SidebarDeviceScope(props: {
       {props.value !== null ? (
         <p
           role="status"
-          aria-label="Device activity"
+          aria-label={gt("Device activity")}
           className="pt-1 text-2xs text-muted-foreground"
         >
-          {selectedGroup
-            ? groupStatus(selectedGroup)
-            : selected
-              ? status(selected)
-              : "Activity unknown"}
-          . Across all projects, including subagents.
+          {gt("{status}. Across all projects, including subagents.", {
+            status: selectedGroup
+              ? groupStatus(selectedGroup)
+              : selected
+                ? status(selected)
+                : gt("Activity unknown"),
+          })}
         </p>
       ) : null}
     </div>

@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { T, useGT } from "gt-react";
 import { ImageIcon } from "lucide-react";
 import { useSidebarPersonalization } from "../../sidebarPersonalization";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
@@ -11,6 +12,7 @@ export function SidebarDeviceIconPicker(props: {
   environment: { environmentId: string; label: string };
   onError: (message: string | null) => void;
 }) {
+  const gt = useGT();
   const [settings, update] = useSidebarPersonalization();
   const input = useRef<HTMLInputElement>(null);
   const selection = useRef(0);
@@ -44,36 +46,36 @@ export function SidebarDeviceIconPicker(props: {
       <Button
         variant="outline"
         size="compact"
-        aria-label={`Choose image for ${label}`}
+        aria-label={gt("Choose image for {label}", { label })}
         onClick={() => input.current?.click()}
       >
-        Upload
+        <T>Upload</T>
       </Button>
       <Button
         variant="outline"
         size="compact"
-        aria-label={`Generate icon for ${label}`}
+        aria-label={gt("Generate icon for {label}", { label })}
         onClick={() => setTextDialogOpen(true)}
       >
-        From text
+        <T>From text</T>
       </Button>
       <Button
         variant="ghost"
         size="compact"
-        aria-label={`Reset icon for ${label}`}
+        aria-label={gt("Reset icon for {label}", { label })}
         disabled={!icon}
         onClick={() => {
           setIcon(null);
           props.onError(null);
         }}
       >
-        Reset
+        <T>Reset</T>
       </Button>
       <input
         ref={input}
         hidden
         type="file"
-        aria-label={`Upload icon for ${label}`}
+        aria-label={gt("Upload icon for {label}", { label })}
         accept="image/png,image/jpeg,image/webp"
         onChange={async (event) => {
           const file = event.target.files?.[0];
@@ -84,7 +86,7 @@ export function SidebarDeviceIconPicker(props: {
             !["image/png", "image/jpeg", "image/webp"].includes(file.type) ||
             file.size > 131072
           ) {
-            props.onError("Choose a PNG, JPEG or WebP image no larger than 128 KB.");
+            props.onError(gt("Choose a PNG, JPEG or WebP image no larger than 128 KB."));
             return;
           }
           try {
@@ -95,7 +97,7 @@ export function SidebarDeviceIconPicker(props: {
             }
           } catch {
             if (input.current && selection.current === request) {
-              props.onError("Could not read the image.");
+              props.onError(gt("Could not read the image."));
             }
           }
         }}

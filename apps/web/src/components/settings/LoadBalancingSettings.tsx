@@ -1,24 +1,32 @@
 import { resolveEnvironmentMachineKind } from "@t3tools/contracts";
+import { msg, T, useGT, useMessages } from "gt-react";
 
 import {
   useClientSettings,
   useClientSettingsHydrated,
   updateClientSettings,
 } from "~/hooks/useSettings";
-import { type EnvironmentPresentation } from "~/state/environments";
+import type { MessageResolver } from "~/i18n/messages";
+import type { EnvironmentPresentation } from "~/state/environments";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { EnvironmentRow, EnvironmentTransportLabel } from "./EnvironmentRow";
 import { FoldedSettingsSection } from "./FoldedSettingsSection";
-import { searchableSetting } from "./settingsSearch";
+import { useSearchableSetting } from "./settingsSearch";
 import { SettingsRow } from "./settingsLayout";
 
 const preferences = [
-  { value: 100, label: "Prefer" },
-  { value: 50, label: "Normal" },
-  { value: 25, label: "Less often" },
-  { value: 0, label: "Manual only" },
+  { value: 100, label: msg("Prefer") },
+  { value: 50, label: msg("Normal", { $context: "load balancing preference" }) },
+  { value: 25, label: msg("Less often") },
+  { value: 0, label: msg("Manual only") },
 ] as const;
+
+const summaryLabels = {
+  100: msg("{environment} prefer"),
+  25: msg("{environment} less often"),
+  0: msg("{environment} manual only"),
+} as const;
 
 type LoadPreference = (typeof preferences)[number]["value"];
 
@@ -28,19 +36,16 @@ function loadPreferenceForWeight(weight: number | undefined): LoadPreference {
   return weight < 50 ? 25 : 100;
 }
 
-function preferenceLabel(preference: LoadPreference): string {
-  return preferences.find((entry) => entry.value === preference)!.label;
-}
-
 function summarizeLoadPreferences(
   environments: ReadonlyArray<Pick<EnvironmentPresentation, "environmentId" | "label">>,
   weights: Readonly<Record<string, number>>,
+  resolve: MessageResolver,
 ): string | null {
   const parts = environments.flatMap((environment) => {
     const preference = loadPreferenceForWeight(weights[environment.environmentId]);
     return preference === 50
       ? []
-      : [`${environment.label} ${preferenceLabel(preference).toLowerCase()}`];
+      : [resolve(summaryLabels[preference], { environment: environment.label })];
   });
   return parts.length === 0 ? null : parts.join(" · ");
 }
@@ -50,12 +55,16 @@ export function LoadBalancingSettings({
 }: {
   environments: ReadonlyArray<EnvironmentPresentation>;
 }) {
+  const searchableSetting = useSearchableSetting();
   const settings = useClientSettings((current) => ({
     loadBalancingEnabled: current.loadBalancingEnabled,
     loadBalancingWeights: current.loadBalancingWeights,
     loadBalancingStrategy: current.loadBalancingStrategy,
   }));
   const settingsHydrated = useClientSettingsHydrated();
+  const gt = useGT();
+  const m = useMessages();
+  const items = preferences.map((entry) => ({ ...entry, label: m(entry.label) }));
 
   if (environments.length < 2) return null;
 
@@ -67,16 +76,18 @@ export function LoadBalancingSettings({
       summary={
         settings.loadBalancingEnabled
           ? [
-              settings.loadBalancingStrategy === "usage" ? "Usage" : "Hardware",
-              summarizeLoadPreferences(environments, settings.loadBalancingWeights),
+              settings.loadBalancingStrategy === "usage"
+                ? gt("Usage", { $context: "routing strategy" })
+                : gt("Hardware", { $context: "routing strategy" }),
+              summarizeLoadPreferences(environments, settings.loadBalancingWeights, m),
             ]
               .filter(Boolean)
               .join(" · ")
-          : "Off"
+          : gt("Off", { $context: "load balancing is turned off" })
       }
       control={
         <Switch
-          aria-label="Automatically balance load"
+          aria-label={gt("Automatically balance load")}
           checked={settings.loadBalancingEnabled}
           disabled={!settingsHydrated}
           onCheckedChange={(loadBalancingEnabled) => updateClientSettings({ loadBalancingEnabled })}
@@ -84,17 +95,24 @@ export function LoadBalancingSettings({
       }
     >
       <SettingsRow
-        title="Routing strategy"
+        title={gt("Routing strategy")}
         description={
-          settings.loadBalancingStrategy === "usage"
-            ? "Prefer remaining quota on confirmed subscription accounts. Recognized plan prices weight the remaining quota automatically; hardware breaks ties. API models use hardware."
-            : "Prefer available CPU and memory, weighted by each machine's preference. Only machines supporting the selected model are eligible."
+          settings.loadBalancingStrategy === "usage" ? (
+            gt(
+              "Prefer remaining quota on confirmed subscription accounts. Recognized plan prices weight the remaining quota automatically; hardware breaks ties. API models use hardware.",
+            )
+          ) : (
+            <T>
+              New threads in shared projects start on the machine with the most free CPU and memory,
+              weighted by each machine's preference.
+            </T>
+          )
         }
         control={
           <Select
             items={[
-              { value: "hardware", label: "Hardware" },
-              { value: "usage", label: "Usage" },
+              { value: "hardware", label: gt("Hardware", { $context: "routing strategy" }) },
+              { value: "usage", label: gt("Usage", { $context: "routing strategy" }) },
             ]}
             value={settings.loadBalancingStrategy}
             disabled={!settingsHydrated || !settings.loadBalancingEnabled}
@@ -103,12 +121,14 @@ export function LoadBalancingSettings({
                 updateClientSettings({ loadBalancingStrategy: value });
             }}
           >
-            <SelectTrigger size="xs" className="w-36" aria-label="Load balancing strategy">
+            <SelectTrigger size="xs" className="w-36" aria-label={gt("Load balancing strategy")}>
               <SelectValue />
             </SelectTrigger>
             <SelectPopup align="end" alignItemWithTrigger={false}>
-              <SelectItem value="hardware">Hardware</SelectItem>
-              <SelectItem value="usage">Usage</SelectItem>
+              <SelectItem value="hardware">
+                {gt("Hardware", { $context: "routing strategy" })}
+              </SelectItem>
+              <SelectItem value="usage">{gt("Usage", { $context: "routing strategy" })}</SelectItem>
             </SelectPopup>
           </Select>
         }
@@ -122,7 +142,7 @@ export function LoadBalancingSettings({
           subtitle={<EnvironmentTransportLabel environment={environment} />}
         >
           <Select
-            items={preferences}
+            items={items}
             value={loadPreferenceForWeight(
               settings.loadBalancingWeights[environment.environmentId],
             )}
@@ -140,12 +160,12 @@ export function LoadBalancingSettings({
             <SelectTrigger
               size="xs"
               className="w-36"
-              aria-label={`${environment.label} load preference`}
+              aria-label={gt("{environment} load preference", { environment: environment.label })}
             >
               <SelectValue />
             </SelectTrigger>
             <SelectPopup align="end" alignItemWithTrigger={false}>
-              {preferences.map(({ value, label }) => (
+              {items.map(({ value, label }) => (
                 <SelectItem key={value} value={value}>
                   {label}
                 </SelectItem>

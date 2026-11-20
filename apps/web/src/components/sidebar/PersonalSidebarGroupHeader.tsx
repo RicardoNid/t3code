@@ -1,3 +1,4 @@
+import { msg, useGT, useMessages } from "gt-react";
 import { ChevronDownIcon, FolderIcon } from "lucide-react";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import {
@@ -9,7 +10,12 @@ import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environ
 import { useUiStateStore } from "../../uiStateStore";
 import { cn } from "../../lib/utils";
 
-const labels = { attention: "needs you", failed: "failed", unread: "unread", working: "working" };
+const labels = {
+  attention: msg("needs you"),
+  failed: msg("failed"),
+  unread: msg("unread"),
+  working: msg("working"),
+};
 export function PersonalSidebarGroupHeader(props: {
   id: string;
   name: string;
@@ -17,6 +23,8 @@ export function PersonalSidebarGroupHeader(props: {
   threads: readonly EnvironmentThreadShell[];
   onToggle: () => void;
 }) {
+  const gt = useGT();
+  const resolve = useMessages();
   const localVisits = useUiStateStore((state) => state.threadLastVisitedAtById);
   const threads = props.threads.map((thread) => ({
     ...thread,
@@ -38,7 +46,7 @@ export function PersonalSidebarGroupHeader(props: {
       >
         <FolderIcon className="size-4 shrink-0" aria-hidden />
         <span className="min-w-0 flex-1 truncate text-sm font-medium">
-          {props.name || "Untitled group"}
+          {props.name || gt("Untitled group")}
         </span>
         {status ? (
           <span
@@ -49,12 +57,12 @@ export function PersonalSidebarGroupHeader(props: {
                 : "text-muted-foreground",
             )}
           >
-            {labels[status]}
+            {resolve(labels[status])}
           </span>
         ) : null}
         {unreadCount > 0 ? (
           <span
-            aria-label={`${unreadCount} unread completions`}
+            aria-label={gt("{count} unread completions", { count: unreadCount })}
             className="text-xs tabular-nums text-muted-foreground"
           >
             {unreadCount}

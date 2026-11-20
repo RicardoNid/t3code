@@ -1,3 +1,4 @@
+import { T, useGT } from "gt-react";
 import { SidebarDeviceIconPicker } from "./SidebarDeviceIconPicker";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { SidebarDeviceGroupsEditor } from "./SidebarDeviceGroupsEditor";
@@ -30,6 +31,7 @@ export function PersonalSidebarControls(props: {
   onDeviceGroupDeleted: (id: string) => void;
   onDeviceGroupsChanged: () => void;
 }) {
+  const gt = useGT();
   const [settings, update] = useSidebarPersonalization();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -66,14 +68,14 @@ export function PersonalSidebarControls(props: {
         }}
       >
         <Input
-          aria-label="New group name"
-          placeholder="New group, e.g. Scheduling"
+          aria-label={gt("New group name")}
+          placeholder={gt("New group, e.g. Scheduling")}
           maxLength={80}
           value={name}
           onChange={(event) => setName(event.target.value)}
         />
         <Button type="submit" disabled={!name.trim()}>
-          Create
+          <T>Create</T>
         </Button>
       </form>
       {settings.groups.map((group, index) => (
@@ -85,7 +87,7 @@ export function PersonalSidebarControls(props: {
           ) : (
             <>
               <Input
-                aria-label={`Group name ${index + 1}`}
+                aria-label={gt("Group name {index}", { index: index + 1 })}
                 maxLength={80}
                 value={group.name}
                 onChange={(event) =>
@@ -100,7 +102,7 @@ export function PersonalSidebarControls(props: {
               <Button
                 size="icon-xs"
                 variant="ghost"
-                aria-label={`Move ${group.name} up`}
+                aria-label={gt("Move {name} up", { name: group.name })}
                 disabled={index === 0}
                 onClick={() =>
                   update((current) => {
@@ -115,7 +117,7 @@ export function PersonalSidebarControls(props: {
               <Button
                 size="icon-xs"
                 variant="ghost"
-                aria-label={`Move ${group.name} down`}
+                aria-label={gt("Move {name} down", { name: group.name })}
                 disabled={index === settings.groups.length - 1}
                 onClick={() =>
                   update((current) => {
@@ -130,7 +132,7 @@ export function PersonalSidebarControls(props: {
               <Button
                 size="icon-xs"
                 variant="ghost-destructive"
-                aria-label={`Delete group ${group.name}, keeping its threads`}
+                aria-label={gt("Delete group {name}, keeping its threads", { name: group.name })}
                 onClick={() =>
                   update((current) => ({
                     ...current,
@@ -147,19 +149,19 @@ export function PersonalSidebarControls(props: {
       ))}
       {props.assignment ? (
         <Button variant="outline" onClick={() => move(null)}>
-          Move to Ungrouped
+          <T>Move to Ungrouped</T>
         </Button>
       ) : null}
     </div>
   );
   return (
     <>
-      <div className="flex items-center gap-1 px-2 pb-1" aria-label="Sidebar view">
+      <div className="flex items-center gap-1 px-2 pb-1" aria-label={gt("Sidebar view")}>
         <span className="ml-auto">
           <Button
             size="icon-xs"
             variant="ghost-muted"
-            aria-label="Customize sidebar"
+            aria-label={gt("Customize sidebar")}
             onClick={() => setOpen(true)}
           >
             <Settings2Icon />
@@ -175,11 +177,13 @@ export function PersonalSidebarControls(props: {
         <DialogPopup>
           <DialogHeader>
             <DialogTitle>
-              {props.assignment ? "Move thread to group" : "Customize sidebar"}
+              {props.assignment ? gt("Move thread to group") : gt("Customize sidebar")}
             </DialogTitle>
             <DialogDescription>
               {props.assignment?.title ??
-                "Organize sessions and devices, and customize their icons. Preferences are saved on this client."}
+                gt(
+                  "Organize sessions and devices, and customize their icons. Preferences are saved on this client.",
+                )}
             </DialogDescription>
           </DialogHeader>
           {props.assignment ? (
@@ -187,18 +191,26 @@ export function PersonalSidebarControls(props: {
           ) : (
             <Tabs defaultValue="sessions">
               <div className="shrink-0 px-6">
-                <TabsList aria-label="Sidebar customization">
-                  <TabsTab value="sessions">Session groups</TabsTab>
-                  <TabsTab value="devices">Device groups</TabsTab>
-                  <TabsTab value="icons">Icons</TabsTab>
+                <TabsList aria-label={gt("Sidebar customization")}>
+                  <TabsTab value="sessions">
+                    <T>Session groups</T>
+                  </TabsTab>
+                  <TabsTab value="devices">
+                    <T>Device groups</T>
+                  </TabsTab>
+                  <TabsTab value="icons">
+                    <T>Icons</T>
+                  </TabsTab>
                 </TabsList>
               </div>
               <DialogPanel>
                 <TabsPanel value="sessions">
                   <div className="flex flex-col gap-4">
                     <p className="text-xs text-muted-foreground">
-                      Groups organize the Inbox. Settling removes a session from its group
-                      permanently. A group is deleted when its last session leaves.
+                      <T>
+                        Groups organize the Inbox. Settling removes a session from its group
+                        permanently. A group is deleted when its last session leaves.
+                      </T>
                     </p>
                     {sessionGroups}
                   </div>
@@ -213,7 +225,9 @@ export function PersonalSidebarControls(props: {
                 <TabsPanel value="icons">
                   <div className="flex flex-col gap-5">
                     <div className="flex flex-col gap-2">
-                      <Label>Thread icons</Label>
+                      <Label>
+                        <T>Thread icons</T>
+                      </Label>
                       <ToggleGroup
                         value={[settings.modelIcons]}
                         onValueChange={(values) => {
@@ -221,13 +235,16 @@ export function PersonalSidebarControls(props: {
                           if (value === "model" || value === "both" || value === "harness")
                             update((current) => ({ ...current, modelIcons: value }));
                         }}
-                        aria-label="Thread icons"
+                        aria-label={gt("Thread icons")}
                       >
                         {(
                           [
-                            ["model", "Model"],
-                            ["both", "Model + harness"],
-                            ["harness", "Harness"],
+                            ["model", gt("Model", { $context: "sidebar thread icon mode" })],
+                            [
+                              "both",
+                              gt("Model + harness", { $context: "sidebar thread icon mode" }),
+                            ],
+                            ["harness", gt("Harness", { $context: "sidebar thread icon mode" })],
                           ] as const
                         ).map(([value, label]) => (
                           <Toggle key={value} value={value}>
@@ -237,10 +254,14 @@ export function PersonalSidebarControls(props: {
                       </ToggleGroup>
                     </div>
                     <div className="flex flex-col gap-2">
-                      <Label>Device icons</Label>
+                      <Label>
+                        <T>Device icons</T>
+                      </Label>
                       <p className="text-xs text-muted-foreground">
-                        PNG, JPEG or WebP, up to 128 KB. Images are resized to fit 256 × 256. Reset
-                        restores the default icon.
+                        <T>
+                          PNG, JPEG or WebP, up to 128 KB. Images are resized to fit 256 × 256.
+                          Reset restores the default icon.
+                        </T>
                       </p>
                       <div className="divide-y divide-border">
                         {props.environments.map((environment) => (
@@ -273,10 +294,10 @@ export function PersonalSidebarControls(props: {
                         URL.revokeObjectURL(url);
                       }}
                     >
-                      Export preferences
+                      <T>Export preferences</T>
                     </Button>
                     <Button variant="outline" onClick={() => importInput.current?.click()}>
-                      Import preferences
+                      <T>Import preferences</T>
                     </Button>
                     <input
                       ref={importInput}
@@ -289,7 +310,7 @@ export function PersonalSidebarControls(props: {
                         if (!file) return;
                         if (file.size > 2_000_000) {
                           setError(
-                            "Invalid preferences file. Existing preferences were not changed.",
+                            gt("Invalid preferences file. Existing preferences were not changed."),
                           );
                           return;
                         }
@@ -299,14 +320,14 @@ export function PersonalSidebarControls(props: {
                           setError(null);
                         } catch {
                           setError(
-                            "Invalid preferences file. Existing preferences were not changed.",
+                            gt("Invalid preferences file. Existing preferences were not changed."),
                           );
                         }
                       }}
                     />
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Import replaces these preferences. Export first to keep a backup.
+                    <T>Import replaces these preferences. Export first to keep a backup.</T>
                   </p>
                   {error ? (
                     <p role="alert" className="text-sm text-destructive">

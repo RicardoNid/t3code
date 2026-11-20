@@ -1,3 +1,4 @@
+import { useGT } from "gt-react";
 import { useDroppable } from "@dnd-kit/core";
 import { CollapsibleSectionHeader } from "../ui/collapsible-section-header";
 import { useSortable } from "@dnd-kit/sortable";
@@ -170,11 +171,21 @@ function SidebarActionTarget({
 }
 
 export function SidebarGroupedDropActions() {
+  const gt = useGT();
   return (
     <li data-thread-selection-safe className="sticky top-0 z-30 flex shrink-0 gap-1 bg-sidebar p-1">
-      <SidebarActionTarget section="pinned" label="Pin" />
-      <SidebarActionTarget section="active" label="Inbox" />
-      <SidebarActionTarget section="settled" label="Settle" />
+      <SidebarActionTarget
+        section="pinned"
+        label={gt("Pin", { $context: "sidebar drag action" })}
+      />
+      <SidebarActionTarget
+        section="active"
+        label={gt("Inbox", { $context: "sidebar drag action" })}
+      />
+      <SidebarActionTarget
+        section="settled"
+        label={gt("Settle", { $context: "sidebar drag action" })}
+      />
     </li>
   );
 }

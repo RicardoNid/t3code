@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { T, useGT } from "gt-react";
 import { ChevronDownIcon, TrashIcon } from "lucide-react";
 import { useSidebarPersonalization } from "../../sidebarPersonalization";
 import { randomUUID } from "../../lib/utils";
@@ -12,13 +13,16 @@ export function SidebarDeviceGroupsEditor(props: {
   onDelete: (id: string) => void;
   onMembersChange: () => void;
 }) {
+  const gt = useGT();
   const [settings, update] = useSidebarPersonalization();
   const [name, setName] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   return (
-    <section className="flex flex-col gap-4" aria-label="Device groups">
+    <section className="flex flex-col gap-4" aria-label={gt("Device groups")}>
       <p className="text-xs text-muted-foreground">
-        Filter sessions by a set of hosts, such as your own devices or a team member’s devices.
+        <T>
+          Filter sessions by a set of hosts, such as your own devices or a team member’s devices.
+        </T>
       </p>
       <form
         className="flex gap-2"
@@ -35,14 +39,14 @@ export function SidebarDeviceGroupsEditor(props: {
         }}
       >
         <Input
-          aria-label="New device group name"
-          placeholder="e.g. My devices"
+          aria-label={gt("New device group name")}
+          placeholder={gt("e.g. My devices")}
           maxLength={80}
           value={name}
           onChange={(event) => setName(event.target.value)}
         />
-        <Button type="submit" aria-label="Create device group" disabled={!name.trim()}>
-          Create
+        <Button type="submit" aria-label={gt("Create device group")} disabled={!name.trim()}>
+          <T>Create</T>
         </Button>
       </form>
       {(settings.deviceGroups ?? []).map((group, index) => {
@@ -57,7 +61,7 @@ export function SidebarDeviceGroupsEditor(props: {
           >
             <div className="flex items-center gap-2">
               <Input
-                aria-label={`Device group name ${index + 1}`}
+                aria-label={gt("Device group name {index}", { index: index + 1 })}
                 maxLength={80}
                 value={group.name}
                 onChange={(event) =>
@@ -71,15 +75,17 @@ export function SidebarDeviceGroupsEditor(props: {
               />
               <CollapsibleTrigger
                 render={<Button variant="ghost" size="compact" />}
-                aria-label={`Edit devices in ${group.name}`}
+                aria-label={gt("Edit devices in {name}", { name: group.name })}
               >
-                {group.members.length} {group.members.length === 1 ? "device" : "devices"}
+                {gt("{count, plural, one {{count} device} other {{count} devices}}", {
+                  count: group.members.length,
+                })}
                 <ChevronDownIcon className={expandedId === group.id ? "rotate-180" : undefined} />
               </CollapsibleTrigger>
               <Button
                 size="icon-xs"
                 variant="ghost-destructive"
-                aria-label={`Delete device group ${group.name}`}
+                aria-label={gt("Delete device group {name}", { name: group.name })}
                 onClick={() => {
                   update((current) => ({
                     ...current,
@@ -127,12 +133,11 @@ export function SidebarDeviceGroupsEditor(props: {
                       }}
                     />
                     <span className="min-w-0 break-words">
-                      {device.label}
                       {props.environments.some(
                         (entry) => entry.environmentId === device.environmentId,
                       )
-                        ? ""
-                        : " (unavailable)"}
+                        ? device.label
+                        : gt("{label} (unavailable)", { label: device.label })}
                     </span>
                   </label>
                 ))}

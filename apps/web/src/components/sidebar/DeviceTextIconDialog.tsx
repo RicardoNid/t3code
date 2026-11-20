@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import type { ProjectIconColor } from "@t3tools/contracts";
+import { T, Var, useGT, useMessages } from "gt-react";
 import { cn } from "../../lib/utils";
 import { PROJECT_ICON_COLORS, projectIconColorClassName } from "../../projectIconColors";
 import { validDeviceIcon } from "../../sidebarPersonalization";
@@ -20,6 +21,8 @@ export function DeviceTextIconDialog(props: {
   onClose: () => void;
   onGenerate: (image: string) => void;
 }) {
+  const gt = useGT();
+  const resolve = useMessages();
   const [letters, setLetters] = useState("");
   const [color, setColor] = useState<ProjectIconColor>("purple");
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +41,7 @@ export function DeviceTextIconDialog(props: {
     if (!preview || !probe) return;
     const context = preview.getContext("2d");
     if (!context) {
-      setError("Could not create the image.");
+      setError(gt("Could not create the image."));
       return;
     }
     preview.width = preview.height = 256;
@@ -58,20 +61,20 @@ export function DeviceTextIconDialog(props: {
     context.textBaseline = "alphabetic";
     context.fillText(valid ? letters : "ABC", 128, 162, 216);
     setError(null);
-  }, [letters, colorClass, valid]);
+  }, [letters, colorClass, valid, gt]);
 
   const save = () => {
     if (!valid || error || !canvas.current) return;
     try {
       const image = canvas.current.toDataURL("image/png");
       if (!validDeviceIcon(image)) {
-        setError("Could not save the image. Please try again.");
+        setError(gt("Could not save the image. Please try again."));
         return;
       }
       props.onGenerate(image);
       props.onClose();
     } catch {
-      setError("Could not save the image. Please try again.");
+      setError(gt("Could not save the image. Please try again."));
     }
   };
 
@@ -84,8 +87,14 @@ export function DeviceTextIconDialog(props: {
     >
       <DialogPopup className="w-full sm:w-[26rem]">
         <DialogHeader>
-          <DialogTitle>Create icon from text</DialogTitle>
-          <DialogDescription>{props.label} · Saved on this client only.</DialogDescription>
+          <DialogTitle>
+            <T>Create icon from text</T>
+          </DialogTitle>
+          <DialogDescription>
+            <T>
+              <Var>{props.label}</Var> · Saved on this client only.
+            </T>
+          </DialogDescription>
         </DialogHeader>
         <DialogPanel>
           <div className="flex items-center gap-4">
@@ -94,12 +103,12 @@ export function DeviceTextIconDialog(props: {
               width={256}
               height={256}
               className="size-20 shrink-0"
-              aria-label="Icon preview"
+              aria-label={gt("Icon preview")}
             />
             <span ref={colorProbe} hidden />
             <div className="min-w-0 flex-1 space-y-2">
               <label htmlFor="device-icon-letters" className="text-sm font-medium">
-                Letters
+                <T>Letters</T>
               </label>
               <Input
                 id="device-icon-letters"
@@ -118,18 +127,20 @@ export function DeviceTextIconDialog(props: {
                 }}
               />
               <p id="device-icon-hint" className="text-xs text-muted-foreground">
-                1–3 letters (A–Z) or numbers.
+                <T>1–3 letters (A–Z) or numbers.</T>
               </p>
             </div>
           </div>
           <div>
-            <div className="mb-2 text-xs font-medium text-muted-foreground">Color</div>
-            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Icon color">
+            <div className="mb-2 text-xs font-medium text-muted-foreground">
+              <T>Color</T>
+            </div>
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label={gt("Icon color")}>
               {PROJECT_ICON_COLORS.map((option) => (
                 <button
                   key={option.value}
                   type="button"
-                  aria-label={option.label}
+                  aria-label={resolve(option.label)}
                   aria-pressed={color === option.value}
                   className={cn(
                     "flex size-6 items-center justify-center rounded-full border border-transparent outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
@@ -150,10 +161,10 @@ export function DeviceTextIconDialog(props: {
         </DialogPanel>
         <DialogFooter>
           <Button variant="outline" onClick={props.onClose}>
-            Cancel
+            <T>Cancel</T>
           </Button>
           <Button disabled={!valid || Boolean(error)} onClick={save}>
-            Use image
+            <T>Use image</T>
           </Button>
         </DialogFooter>
       </DialogPopup>
