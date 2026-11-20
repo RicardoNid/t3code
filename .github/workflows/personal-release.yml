@@ -78,7 +78,7 @@ jobs:
             arch: arm64
             target: dmg
             suffix: arm64.dmg
-          - runner: ubuntu-26.04
+          - runner: ubuntu-24.04
             platform: linux
             arch: x64
             target: AppImage
@@ -100,7 +100,6 @@ jobs:
       - name: Linux prerequisites
         if: matrix.platform == 'linux'
         run: |
-          test "$(. /etc/os-release; echo "$VERSION_ID")" = '26.04'
           sudo apt-get update
           sudo apt-get install -y libsecret-1-dev pkg-config imagemagick patchelf libgtk-3-0t64 libnss3 libasound2t64 libgbm1
       - name: Build only the requested architecture
@@ -140,6 +139,13 @@ jobs:
           else
             test "$(dpkg-deb -f "$RUNNER_TEMP/packages/T3-Code-$VERSION-amd64.deb" Architecture)" = amd64
           fi
+      - name: Launch the shipped DMG in an isolated home
+        if: matrix.platform == 'mac'
+        run: |
+          mount="$RUNNER_TEMP/launch-mount"
+          hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$RUNNER_TEMP/packages/T3-Code-$VERSION-arm64.dmg"
+          trap 'hdiutil detach "$mount" -force >/dev/null || true' EXIT
+          node scripts/smoke-desktop-app.ts --executable "$mount/T3 Code (Beta).app/Contents/MacOS/T3 Code (Beta)" --artifacts-dir "$RUNNER_TEMP/launch-check"
       - uses: actions/upload-artifact@v6
         with:
           name: installer-${{ matrix.platform }}-${{ matrix.arch }}
@@ -147,8 +153,32 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 3
+  ubuntu_launch:
+    needs: [resolve, build]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.ref }}
+      - uses: ./.github/actions/setup-ci-deps
+        with:
+          install-args: --filter '@t3tools/scripts...'
+      - uses: actions/download-artifact@v6
+        with:
+          name: installer-linux-x64
+          path: installers
+      - name: Launch the shipped DEB on Ubuntu 26.04
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          test "$(. /etc/os-release; echo "$VERSION_ID")" = '26.04'
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgtk-3-0t64 libnss3 libasound2t64 libgbm1 libsecret-1-0
+          dpkg-deb -x "installers/T3-Code-$VERSION-amd64.deb" "$RUNNER_TEMP/unpacked"
+          xvfb-run -a node scripts/smoke-desktop-app.ts --executable "$RUNNER_TEMP/unpacked/opt/T3 Code (Beta)/t3code" --artifacts-dir "$RUNNER_TEMP/launch-check"
   publish:
-    needs: [resolve, validate, build]
+    needs: [resolve, validate, build, ubuntu_launch]
     runs-on: ubuntu-26.04
     timeout-minutes: 20
     permissions:

@@ -9,7 +9,9 @@ them in the temporary CI checkout. A conflict stops the run for review.
 Affected checks and personal regressions must pass before packaging. Only macOS
 Apple Silicon DMG and Ubuntu 26.04 x64 DEB are uploaded, with `SHA256SUMS` and
 `personal-release.json`. macOS uses ad hoc signing without Apple notarization.
-No package is installed, no service is restarted, and no PR is created.
+The Linux build uses Ubuntu 24.04 to preserve the existing glibc ceiling, then
+launches the shipped DEB on Ubuntu 26.04. The shipped DMG also receives an isolated
+launch check. No personal machine is updated or restarted, and no PR is created.
 
 A candidate tag identifies the upstream tag, personal base and controller recipe.
 Retries reuse that candidate and version; a completed promotion is recognized so
