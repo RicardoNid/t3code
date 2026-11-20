@@ -16,6 +16,24 @@ spec.loader.exec_module(release)
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_setup_action_receives_filter_arguments_without_literal_shell_quotes(self):
+        workflow = pathlib.Path(__file__).resolve().parent.parent / '.github/workflows/personal-release.yml'
+        found = []
+        for line in workflow.read_text().splitlines():
+            if 'install-args:' not in line:
+                continue
+            value = line.split('install-args:', 1)[1].strip()
+            env = dict(os.environ, INSTALL_ARGS=value)
+            output = subprocess.check_output(['bash', '-c', 'set -- $INSTALL_ARGS; printf "%s\\n" "$@"'], env=env, text=True)
+            tokens = output.splitlines()
+            self.assertEqual(tokens[::2], ['--filter'] * (len(tokens) // 2))
+            for package in tokens[1::2]:
+                self.assertNotIn("'", package)
+                self.assertNotIn('"', package)
+            found.extend(tokens[1::2])
+        self.assertIn('./scripts...', found)
+        self.assertIn('@t3tools/scripts...', found)
+
     def test_successful_promotion_does_not_trigger_another_hourly_build(self):
         provenance = {'upstreamSha': 'upstream', 'recipe': 'recipe'}
         self.assertTrue(release.integrated('promoted', 'promoted', provenance, 'upstream', 'recipe'))

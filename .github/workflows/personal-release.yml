@@ -95,7 +95,7 @@ jobs:
           ref: ${{ needs.resolve.outputs.ref }}
       - uses: ./.github/actions/setup-ci-deps
         with:
-          install-args: --filter @t3tools/monorepo --filter '@t3tools/web...' --filter 't3...' --filter '@t3tools/desktop...' --filter './oxlint-plugin-t3code...' --filter './scripts...'
+          install-args: --filter @t3tools/monorepo --filter @t3tools/web... --filter t3... --filter @t3tools/desktop... --filter ./oxlint-plugin-t3code... --filter ./scripts...
       - uses: dtolnay/rust-toolchain@stable
       - name: Linux prerequisites
         if: matrix.platform == 'linux'
@@ -163,7 +163,7 @@ jobs:
           ref: ${{ needs.resolve.outputs.ref }}
       - uses: ./.github/actions/setup-ci-deps
         with:
-          install-args: --filter '@t3tools/scripts...'
+          install-args: --filter @t3tools/scripts...
       - uses: actions/download-artifact@v6
         with:
           name: installer-linux-x64
