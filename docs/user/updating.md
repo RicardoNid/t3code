@@ -1,5 +1,14 @@
 # Updating T3 Code
 
+## Personal fork builds
+
+Versions containing `-personal.` use the personal fork's releases rather than the
+upstream download source. If a connected machine requires personal updater setup,
+install a current personal build on that machine once before using remote updates.
+A source checkout or an unmanaged server still needs its existing deployment procedure.
+Ad-hoc signed macOS builds use the managed installer; native macOS automatic updates
+require a properly signed build. Installing a provider CLI does not update T3 Code.
+
 The app you use and the server running your agents can be on different machines.
 When a server is behind your web or desktop app, the update button at the bottom
 of the sidebar and **Settings → Environments** offer to update it.

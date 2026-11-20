@@ -6,7 +6,8 @@ import {
   type ServerProvider,
 } from "@t3tools/contracts";
 import {
-  CLI_RELEASES_PAGE_URL,
+  cliReleasesPageUrl,
+  isPersonalReleaseVersion,
   cliReleaseChannelOf,
   cliReleaseIndexPageUrl,
   newestCliReleaseVersion,
@@ -26,10 +27,15 @@ export function canMaintainEnvironment(session: AuthSessionState | null, connect
 }
 
 export function supportsEnvironmentUpdate(
-  capabilities: Pick<ExecutionEnvironmentCapabilities, "serverSelfUpdate" | "desktopAppUpdate">,
+  capabilities: Pick<
+    ExecutionEnvironmentCapabilities,
+    "serverSelfUpdate" | "desktopAppUpdate" | "personalReleaseUpdates"
+  >,
+  currentVersion = "",
 ) {
   return (
     capabilities.serverSelfUpdate !== undefined &&
+    (!isPersonalReleaseVersion(currentVersion) || capabilities.personalReleaseUpdates === true) &&
     (capabilities.serverSelfUpdate !== "desktop-managed" || capabilities.desktopAppUpdate === true)
   );
 }
@@ -68,9 +74,10 @@ async function fetchReleases(url: string, accept: string, signal: AbortSignal) {
 
 export async function findEnvironmentUpdate(currentVersion: string, signal: AbortSignal) {
   const channel = cliReleaseChannelOf(currentVersion);
+  const releasesPage = cliReleasesPageUrl(currentVersion);
   // Public release pages avoid the anonymous API quota shared by devices on the same network.
   const response = await fetchReleases(
-    channel === "stable" ? `${CLI_RELEASES_PAGE_URL}/latest` : `${CLI_RELEASES_PAGE_URL}.atom`,
+    channel === "stable" ? `${releasesPage}/latest` : `${releasesPage}.atom`,
     channel === "stable" ? "application/json" : "application/atom+xml",
     signal,
   );
@@ -83,17 +90,17 @@ export async function findEnvironmentUpdate(currentVersion: string, signal: Abor
           ),
           ([, tag_name = ""]) => ({ tag_name }),
         );
-  let version = newestCliReleaseVersion(releases, channel);
+  let version = newestCliReleaseVersion(releases, channel, currentVersion);
 
   // The feed only includes ten releases, so later nightlies can displace a published preview.
   for (let page = 1; version === undefined; page++) {
     const response = await fetchReleases(
-      cliReleaseIndexPageUrl(page),
+      cliReleaseIndexPageUrl(page, currentVersion),
       "application/vnd.github+json",
       signal,
     );
     const releases = decodeReleases(await response.json());
-    version = newestCliReleaseVersion(releases, channel);
+    version = newestCliReleaseVersion(releases, channel, currentVersion);
     if (releases.length < 100) break;
   }
 

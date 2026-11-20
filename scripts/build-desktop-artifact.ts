@@ -17,6 +17,7 @@ import {
 
 import { fromYaml } from "@t3tools/shared/schemaYaml";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { isPersonalReleaseVersion } from "@t3tools/shared/cliRelease";
 import { clerkFrontendApiHostnameFromPublishableKey } from "@t3tools/shared/relayAuth";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import rootPackageJson from "../package.json" with { type: "json" };
@@ -2698,6 +2699,7 @@ export function resolveDesktopRuntimeDependencies(
 
 export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig")(function* (
   updateChannel: "latest" | "nightly",
+  version: string,
 ) {
   const env = yield* Config.all({
     updateRepository: Config.String("T3CODE_DESKTOP_UPDATE_REPOSITORY").pipe(Config.option),
@@ -2705,7 +2707,9 @@ export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig"
   });
   const rawRepo = (
     Option.getOrUndefined(env.updateRepository)?.trim() ||
-    Option.getOrUndefined(env.githubRepository)?.trim() ||
+    (isPersonalReleaseVersion(version)
+      ? "RicardoNid/t3code"
+      : Option.getOrUndefined(env.githubRepository)?.trim()) ||
     ""
   ).trim();
   if (!rawRepo) return undefined;
@@ -2819,8 +2823,12 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   const updateChannel = resolveDesktopUpdateChannel(version);
   // Missing publish config infers a GitHub feed from tokens; staging has no repository, so manifest generation would crash.
   buildConfig.publish = null;
-  if (!isDesktopPreviewVersion(version)) {
-    const publishConfig = yield* resolveGitHubPublishConfig(updateChannel);
+  // Squirrel.Mac cannot install updates for the ad-hoc personal builds.
+  if (
+    !isDesktopPreviewVersion(version) &&
+    !(platform === "mac" && isPersonalReleaseVersion(version) && !signed)
+  ) {
+    const publishConfig = yield* resolveGitHubPublishConfig(updateChannel, version);
     if (publishConfig) {
       buildConfig.publish = [publishConfig];
     } else if (mockUpdates) {

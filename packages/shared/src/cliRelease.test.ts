@@ -1,8 +1,33 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { cliArchiveTarCommand, newestCliReleaseVersion, parseChecksums } from "./cliRelease.ts";
+import {
+  cliArchiveTarCommand,
+  cliReleaseAssetUrl,
+  cliReleaseIndexPageUrl,
+  newestCliReleaseVersion,
+  parseChecksums,
+} from "./cliRelease.ts";
 
 describe("cliRelease", () => {
+  it("keeps personal binaries and discovery on the fork while preserving explicit mirrors", () => {
+    const version = "0.1.11-personal.20261120.5";
+    expect(cliReleaseAssetUrl(version, "SHA256SUMS")).toBe(
+      `https://github.com/RicardoNid/t3code/releases/download/v${version}/SHA256SUMS`,
+    );
+    expect(cliReleaseIndexPageUrl(2, version)).toBe(
+      "https://api.github.com/repos/RicardoNid/t3code/releases?per_page=100&page=2",
+    );
+    expect(cliReleaseAssetUrl(version, "SHA256SUMS", "https://mirror.example/t3?token=test")).toBe(
+      `https://mirror.example/t3/v${version}/SHA256SUMS?token=test`,
+    );
+    expect(cliReleaseAssetUrl("0.1.11", "SHA256SUMS")).toBe(
+      "https://github.com/pingdotgg/t3code/releases/download/v0.1.11/SHA256SUMS",
+    );
+    const releases = [{ tag_name: "v0.1.12" }, { tag_name: `v${version}` }];
+    expect(newestCliReleaseVersion(releases, "stable", version)).toBe(version);
+    expect(newestCliReleaseVersion(releases, "stable")).toBe("0.1.12");
+    expect(newestCliReleaseVersion([{ tag_name: `v${version}` }], "stable")).toBeUndefined();
+  });
   it("parses sha256sum output including binary-mode markers", () => {
     const checksums = parseChecksums(
       [

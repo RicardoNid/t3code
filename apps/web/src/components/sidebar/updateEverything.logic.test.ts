@@ -46,6 +46,31 @@ function machine(
 }
 
 describe("collectServerUpdateTargets", () => {
+  it("requires a personal updater bootstrap before sending a fork version to legacy hosts", () => {
+    const legacy = machine("legacy", "0.1.7-personal.20261111.1", "boot-service");
+    const base = machine("ready", "0.1.11-personal.20261120.4", "boot-service");
+    const current = {
+      ...base,
+      serverConfig: {
+        ...base.serverConfig!,
+        environment: {
+          ...base.serverConfig!.environment,
+          capabilities: {
+            ...base.serverConfig!.environment.capabilities,
+            personalReleaseUpdates: true,
+          },
+        },
+      },
+    };
+    const { targets, skipped } = collectServerUpdateTargets(
+      [legacy, current],
+      "0.1.11-personal.20261120.5",
+    );
+    expect(targets.map((target) => target.serverLabel)).toEqual(["ready"]);
+    expect(skipped.map((entry) => entry.reason)).toEqual([
+      "requires personal updater setup on that machine",
+    ]);
+  });
   it("updates remote servers that can move to the target and names every skipped one", () => {
     const { targets, skipped } = collectServerUpdateTargets(
       [

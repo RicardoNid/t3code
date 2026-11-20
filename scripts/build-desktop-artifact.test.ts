@@ -554,6 +554,38 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     ),
   );
 
+  it.effect("embeds the fork feed in personal builds without relying on the CI environment", () =>
+    Effect.gen(function* () {
+      const config = yield* createBuildConfig(
+        "linux",
+        "AppImage",
+        "0.1.11-personal.20261120.5",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+      assert.deepStrictEqual(config.publish, [
+        {
+          provider: "github",
+          owner: "RicardoNid",
+          repo: "t3code",
+          releaseType: "release",
+        },
+      ]);
+      const unsignedMac = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.1.11-personal.20261120.5",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+      assert.isNull(unsignedMac.publish);
+    }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
+  );
+
   it.effect("names the Electron window class in the Linux desktop entry", () =>
     Effect.gen(function* () {
       const linux = yield* createBuildConfig(

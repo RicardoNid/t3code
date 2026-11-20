@@ -38,7 +38,7 @@ import { useServerConfigs } from "~/state/entities";
 import { useManagedPolicy } from "~/state/managedPolicy";
 import { environmentPresentations } from "~/state/presentation";
 import { ManagedControl } from "./ManagedPolicy";
-import { manualServerUpdateCommand } from "~/versionSkew";
+import { manualServerUpdateCommand, personalUpdateSetupReason } from "~/versionSkew";
 import { crossesReleaseTrack } from "@t3tools/shared/cliRelease";
 import { Button } from "./ui/button";
 import { toastManager } from "./ui/toast";
@@ -139,6 +139,11 @@ export function useServerUpdate() {
       }
       return { status: "failed", message: denial };
     }
+    const setupReason = personalUpdateSetupReason(
+      appAtomRegistry.get(environmentPresentations.serverConfigsAtom).get(environmentId),
+      targetVersion,
+    );
+    if (setupReason !== null) return { status: "failed", message: setupReason };
     if (
       !canUpdateServer(appAtomRegistry.get(environmentSession.sessionStateAtom(environmentId))) ||
       pendingUpdateEnvironmentIds.has(environmentId)
@@ -204,6 +209,11 @@ export function ServerUpdatesAction({
   const eligible = targets.filter(
     (target) =>
       target.selfUpdate !== null &&
+      personalUpdateSetupReason(
+        serverConfigs.get(target.environmentId),
+        target.targetVersion,
+        messages,
+      ) === null &&
       (target.selfUpdate !== "desktop-managed" || target.desktopAppUpdate) &&
       managedUpdatesDenial(serverConfigs.get(target.environmentId)?.managedPolicy, messages) ===
         undefined &&
@@ -301,7 +311,8 @@ export function ServerUpdateAction({
   const gt = useGT();
   const messages = useMessages();
   const isDesktopAppUpdate = selfUpdate === "desktop-managed";
-  const serverVersion = useServerConfigs().get(environmentId)?.environment.serverVersion;
+  const serverConfig = useServerConfigs().get(environmentId);
+  const serverVersion = serverConfig?.environment.serverVersion;
   const sessionStateAtom = environmentSession.sessionStateAtom(environmentId);
   const canUpdate = useAtomValue(sessionStateAtom, canUpdateServer);
   const updatesDenial = managedUpdatesDenial(useManagedPolicy(environmentId), messages);
@@ -384,6 +395,11 @@ export function ServerUpdateAction({
     ) : (
       <span className="text-muted-foreground text-xs">{updatesDenial}</span>
     );
+  }
+
+  const setupReason = personalUpdateSetupReason(serverConfig, targetVersion, messages);
+  if (setupReason !== null) {
+    return <span className="text-muted-foreground text-xs">{setupReason}</span>;
   }
 
   if (selfUpdate === "desktop-managed" && !desktopAppUpdate) {

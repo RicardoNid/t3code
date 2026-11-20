@@ -127,7 +127,12 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
 
   function requestServerUpdate() {
     const targetVersion = checkedRelease?.targetVersion;
-    if (disabled || !targetVersion || !capabilities || !supportsEnvironmentUpdate(capabilities))
+    if (
+      disabled ||
+      !targetVersion ||
+      !capabilities ||
+      !supportsEnvironmentUpdate(capabilities, config?.environment.serverVersion)
+    )
       return;
     Dialog.alert(
       environment
@@ -292,7 +297,10 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
                     ) : null}
                     {checkedRelease?.targetVersion &&
                     !updatesDenial &&
-                    !supportsEnvironmentUpdate(config.environment.capabilities) ? (
+                    !supportsEnvironmentUpdate(
+                      config.environment.capabilities,
+                      config.environment.serverVersion,
+                    ) ? (
                       <Text className="text-sm text-foreground-muted">
                         {capabilities?.serverSelfUpdate === "desktop-managed"
                           ? gt("Update the desktop app on this machine.")
@@ -330,7 +338,10 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
                   )}
                   {checkedRelease?.targetVersion &&
                   !updatesDenial &&
-                  supportsEnvironmentUpdate(config.environment.capabilities) ? (
+                  supportsEnvironmentUpdate(
+                    config.environment.capabilities,
+                    config.environment.serverVersion,
+                  ) ? (
                     <SettingsActionRow
                       icon="arrow.up.circle"
                       label={gt("Update to {version}", { version: checkedRelease.targetVersion })}

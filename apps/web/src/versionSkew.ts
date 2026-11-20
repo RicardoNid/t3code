@@ -6,6 +6,7 @@ import type {
 } from "@t3tools/contracts";
 import type { ServerUpdateState } from "@t3tools/client-runtime/state/server";
 import { compareSemverVersions, parseSemver } from "@t3tools/shared/semver";
+import { isPersonalReleaseVersion } from "@t3tools/shared/cliRelease";
 import * as Schema from "effect/Schema";
 import { msg } from "gt-react";
 
@@ -62,11 +63,15 @@ export function resolveVersionMismatch(
   const compareNightlyBuilds =
     parseSemver(normalizedClientVersion)?.prerelease[0] === "nightly" &&
     parseSemver(normalizedServerVersion)?.prerelease[0] === "nightly";
+  const compareBuilds =
+    compareNightlyBuilds ||
+    (isPersonalReleaseVersion(normalizedClientVersion) &&
+      isPersonalReleaseVersion(normalizedServerVersion));
   const serverIsBehind =
     parseSemver(clientCore) && parseSemver(serverCore)
       ? compareSemverVersions(
-          compareNightlyBuilds ? normalizedServerVersion : serverCore,
-          compareNightlyBuilds ? normalizedClientVersion : clientCore,
+          compareBuilds ? normalizedServerVersion : serverCore,
+          compareBuilds ? normalizedClientVersion : clientCore,
         ) < 0
       : normalizedServerVersion !== normalizedClientVersion;
   if (!serverIsBehind) {
@@ -99,6 +104,17 @@ export function supportsDesktopAppUpdate(
   serverConfig: Pick<ServerConfig, "environment"> | null | undefined,
 ): boolean {
   return serverConfig?.environment.capabilities.desktopAppUpdate === true;
+}
+
+export function personalUpdateSetupReason(
+  config: Pick<ServerConfig, "environment"> | null | undefined,
+  targetVersion: string,
+  resolve: MessageResolver = m,
+): string | null {
+  return isPersonalReleaseVersion(targetVersion) &&
+    config?.environment.capabilities.personalReleaseUpdates !== true
+    ? resolve(msg("requires personal updater setup on that machine"))
+    : null;
 }
 
 export function manualServerUpdateCommand(

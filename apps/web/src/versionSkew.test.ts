@@ -74,6 +74,12 @@ describe("versionSkew", () => {
     });
   });
 
+  it("compares personal build numbers within the same upstream version", () => {
+    branding.APP_VERSION = "0.1.11-personal.20261120.10";
+    expect(resolveVersionMismatch("0.1.11-personal.20261120.9")).not.toBeNull();
+    expect(resolveVersionMismatch("0.1.11-personal.20261120.11")).toBeNull();
+  });
+
   it("does not warn when the server is ahead of the client", () => {
     expect(resolveVersionMismatch("0.0.35")).toBeNull();
     expect(resolveVersionMismatch("9.9.9")).toBeNull();

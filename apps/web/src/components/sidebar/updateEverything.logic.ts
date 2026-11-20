@@ -18,6 +18,7 @@ import {
   resolveServerSelfUpdateCapability,
   resolveVersionMismatch,
   supportsDesktopAppUpdate,
+  personalUpdateSetupReason,
 } from "~/versionSkew";
 import type { ServerUpdateOutcome, ServerUpdateTarget } from "../ServerUpdateAction";
 
@@ -100,6 +101,11 @@ export function collectServerUpdateTargets(
       continue;
     }
     const selfUpdate = resolveServerSelfUpdateCapability(config);
+    const setupReason = personalUpdateSetupReason(config, targetVersion, resolve);
+    if (setupReason !== null) {
+      skip(setupReason);
+      continue;
+    }
     const managedDenial = managedMachineUpdateDenial(
       config,
       selfUpdate === "desktop-managed" ? undefined : targetVersion,

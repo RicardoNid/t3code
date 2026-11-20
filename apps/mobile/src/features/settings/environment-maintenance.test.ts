@@ -1,11 +1,23 @@
 import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { canMaintainEnvironment, findEnvironmentUpdate } from "./environment-maintenance";
+import {
+  canMaintainEnvironment,
+  findEnvironmentUpdate,
+  supportsEnvironmentUpdate,
+} from "./environment-maintenance";
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe("environment maintenance access", () => {
+  it("does not offer native personal updates on legacy hosts", () => {
+    const capabilities = { serverSelfUpdate: "boot-service" as const };
+    const version = "0.1.11-personal.20261120.5";
+    expect(supportsEnvironmentUpdate(capabilities, version)).toBe(false);
+    expect(
+      supportsEnvironmentUpdate({ ...capabilities, personalReleaseUpdates: true }, version),
+    ).toBe(true);
+  });
   it("requires a connected authenticated session with operate permission", () => {
     const session = {
       authenticated: true,
