@@ -245,7 +245,7 @@ jobs:
       - name: Bundle the isolated verification helper
         run: |
           mkdir verify
-          vp exec -- esbuild scripts/smoke-cli-archive.ts --bundle --platform=node --format=esm --target=node24 --banner:js='import { createRequire } from "node:module"; const require = createRequire(import.meta.url);' --outfile=verify/smoke-cli-archive.mjs
+          vp exec --filter @t3tools/scripts -- esbuild "$GITHUB_WORKSPACE/scripts/smoke-cli-archive.ts" --bundle --platform=node --format=esm --target=node24 --banner:js='import { createRequire } from "node:module"; const require = createRequire(import.meta.url);' --outfile="$GITHUB_WORKSPACE/verify/smoke-cli-archive.mjs"
       - uses: actions/upload-artifact@v6
         with:
           name: installer-linux-arm64-server
