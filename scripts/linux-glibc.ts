@@ -62,10 +62,14 @@ export async function scanGlibcNeeds(appOutDir: string): Promise<{
       elfCount++;
       try {
         // readelf inspects either release architecture without executing the binary.
-        const { stdout, stderr } = await readelf("readelf", ["--wide", "--version-info", file], {
-          env: { ...process.env, LC_ALL: "C" },
-          maxBuffer: 16 * 1024 * 1024,
-        });
+        const { stdout, stderr } = await readelf(
+          "readelf",
+          ["--wide", "--debug-dump=no-follow-links", "--version-info", file],
+          {
+            env: { ...process.env, LC_ALL: "C" },
+            maxBuffer: 16 * 1024 * 1024,
+          },
+        );
         if (stderr.trim()) throw new Error(stderr.trim());
         const required = parseGlibcNeeds(stdout);
         if (required && compareVersions(required, GLIBC_BUILD_CEILING) > 0) {
