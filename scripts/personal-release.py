@@ -50,7 +50,7 @@ def release_files(version):
     if not re.fullmatch(r'\d+\.\d+\.\d+-personal\.\d{8}\.\d+', version):
         raise ValueError('Unexpected personal build version')
     return {f'T3-Code-{version}-arm64.dmg', f'T3-Code-{version}-arm64.zip',
-            f'T3-Code-{version}-amd64.deb', 'T3-Code-x64.AppImage',
+            f'T3-Code-{version}-amd64.deb', 'T3-Code-x86_64.AppImage',
             f't3-{version}-darwin-arm64.tar.gz', f't3-{version}-linux-x64.tar.gz',
             'latest-mac.yml', 'latest-linux.yml'}
 
@@ -67,7 +67,7 @@ def prepare_feed(directory, version, platform):
     release_files(version)
     directory = pathlib.Path(directory)
     names = ([f'T3-Code-{version}-arm64.zip', f'T3-Code-{version}-arm64.dmg']
-             if platform == 'mac' else ['T3-Code-x64.AppImage', f'T3-Code-{version}-amd64.deb'])
+             if platform == 'mac' else ['T3-Code-x86_64.AppImage', f'T3-Code-{version}-amd64.deb'])
     files = []
     for name in names:
         path = directory / name

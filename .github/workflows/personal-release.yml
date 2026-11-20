@@ -175,7 +175,7 @@ jobs:
             ${{ runner.temp }}/packages/T3-Code-*.dmg
             ${{ runner.temp }}/packages/T3-Code-*.zip
             ${{ runner.temp }}/packages/T3-Code-*.deb
-            ${{ runner.temp }}/packages/T3-Code-x64.AppImage
+            ${{ runner.temp }}/packages/T3-Code-x86_64.AppImage
             ${{ runner.temp }}/packages/t3-*.tar.gz
             ${{ runner.temp }}/packages/latest-*.yml
           if-no-files-found: error

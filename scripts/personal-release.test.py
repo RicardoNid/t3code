@@ -22,7 +22,7 @@ class ReleaseTests(unittest.TestCase):
         version = '0.1.11-personal.20261120.5'
         for platform, names, feed in (
             ('mac', [f'T3-Code-{version}-arm64.zip', f'T3-Code-{version}-arm64.dmg'], 'latest-mac.yml'),
-            ('linux', ['T3-Code-x64.AppImage', f'T3-Code-{version}-amd64.deb'], 'latest-linux.yml'),
+            ('linux', ['T3-Code-x86_64.AppImage', f'T3-Code-{version}-amd64.deb'], 'latest-linux.yml'),
         ):
             with tempfile.TemporaryDirectory() as temporary:
                 directory = pathlib.Path(temporary)
@@ -65,7 +65,7 @@ class ReleaseTests(unittest.TestCase):
         expected = release.release_files(version)
         self.assertEqual(expected, {
             f'T3-Code-{version}-arm64.dmg', f'T3-Code-{version}-arm64.zip',
-            f'T3-Code-{version}-amd64.deb', 'T3-Code-x64.AppImage',
+            f'T3-Code-{version}-amd64.deb', 'T3-Code-x86_64.AppImage',
             f't3-{version}-darwin-arm64.tar.gz', f't3-{version}-linux-x64.tar.gz',
             'latest-mac.yml', 'latest-linux.yml',
         })
