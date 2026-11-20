@@ -1,0 +1,9 @@
+{
+  "upstreamTag": "v0.1.11",
+  "upstreamSha": "59651c1761f6c63e9b6056839067066968e6a406",
+  "forkBase": "7203ffd19c7474f2e81f8e0c965cc32b21b8284a",
+  "recipe": "acc899d585541dd0ea26419d59763f94e142428a3c895bc9a56a1e387703c77b",
+  "version": "0.1.11-personal.20261120.2",
+  "releaseTag": "personal-v0.1.11-f7203ffd19c74-racc899d58554",
+  "platforms": ["macos-arm64", "ubuntu-26.04-x64"]
+}
