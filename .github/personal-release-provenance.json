@@ -1,9 +1,9 @@
 {
   "upstreamTag": "v0.1.11",
   "upstreamSha": "59651c1761f6c63e9b6056839067066968e6a406",
-  "forkBase": "b4a6f44cf69ef79a6c7630807f7e565f6a41770d",
-  "recipe": "9de8fd431955bc46c0cc384d37beae59d34e22b71b779cf4b41c9eac4fdca167",
-  "version": "0.1.11-personal.20261120.6",
-  "releaseTag": "v0.1.11-personal.20261120.6",
-  "platforms": ["macos-arm64", "ubuntu-26.04-x64"]
+  "forkBase": "8403b6aacf7f3124a104cf4e27be2ff498613945",
+  "recipe": "aca379765734eb6e94f5512683f2cfd25fd877e767ad6ea388ea881889a13faa",
+  "version": "0.1.11-personal.20261120.8",
+  "releaseTag": "v0.1.11-personal.20261120.8",
+  "platforms": ["macos-arm64", "ubuntu-26.04-x64", "linux-arm64-server"]
 }
