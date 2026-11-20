@@ -1,224 +1,341 @@
-import { RegistryContext } from "@effect/atom-react";
-import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import { collectLoadBalancingProviders } from "@t3tools/client-runtime/load-balancing";
+import { useAtomValue } from "@effect/atom-react";
+import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
+import type { ServerProvider } from "@t3tools/contracts";
+import {
+  scopedThreadKey,
+  scopeProjectRef,
+  scopeThreadRef,
+} from "@t3tools/client-runtime/environment";
+import { createModelSelection } from "@t3tools/shared/model";
+import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
 import {
   EnvironmentId,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
-  ThreadId,
-  type ModelSelection,
-  type ServerProvider,
 } from "@t3tools/contracts";
-import { Atom, AtomRegistry, AsyncResult } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
-import { render, act } from "../../../test/render";
+
+import { act, render } from "../../../test/render";
 import { DraftId, useComposerDraftStore } from "../../composerDraftStore";
-import { deriveProviderInstanceEntries } from "../../providerInstances";
-import { ProviderModelPicker } from "./ProviderModelPicker";
 import { useDraftEnvironmentRouting } from "./useDraftEnvironmentRouting";
+import { appAtomRegistry, AppAtomRegistryProvider } from "../../rpc/atomRegistry";
+import { draftFanoutSelectionsAtom } from "./chatViewSend";
 
-import { serverEnvironment } from "../../state/server";
-import "~/index.css";
-
-vi.mock("../../state/entities", () => ({ useProjects: () => [] }));
-vi.mock("../../hooks/useScratchProject", () => ({
-  useScratchProject: () => ({ openScratchProject: vi.fn() }),
+const resources = vi.hoisted(() => ({
+  projects: [] as EnvironmentProject[],
+  pickedEnvironmentId: null as EnvironmentId | null,
+  refreshSelection:
+    vi.fn<
+      (
+        ids: readonly EnvironmentId[],
+      ) => Promise<{ environmentId: EnvironmentId; instanceId: ProviderInstanceId } | null>
+    >(),
 }));
+vi.mock("../../hooks/useLoadBalancedEnvironment", () => ({
+  useLoadBalancedEnvironment: () => ({
+    pending: false,
+    failed: false,
+    environmentId: resources.pickedEnvironmentId,
+    instanceId: ProviderInstanceId.make("codex"),
+    refresh: () => {},
+    refreshSelection: resources.refreshSelection,
+  }),
+}));
+vi.mock("../../state/entities", () => ({
+  useProjects: () => resources.projects,
+  readProject: (ref: { environmentId: EnvironmentId; projectId: ProjectId }) =>
+    resources.projects.find(
+      (project) => project.environmentId === ref.environmentId && project.id === ref.projectId,
+    ) ?? null,
+}));
+vi.mock("../../hooks/useScratchProject", () => ({ useScratchProject: () => ({}) }));
 
-it("routes a picked remote-only model to its real instance and preserves draft content and options", async () => {
-  using _now = vi.spyOn(Date, "now").mockReturnValue(100000);
-  const hostResources = Atom.family((environmentId: EnvironmentId) =>
-    Atom.make(
-      AsyncResult.success(
-        {
-          sampledAt: 0,
-          cpuUtilization: 0.1,
-          cpuCount: environmentId === "a" ? 64 : 8,
-          availableMemoryBytes: 8000,
-          totalMemoryBytes: 16000,
-        },
-        { timestamp: 100000 },
-      ),
-    ),
-  );
-  using _resources = vi
-    .spyOn(serverEnvironment, "hostResources")
-    .mockImplementation(({ environmentId }) => hostResources(environmentId));
-  const a = EnvironmentId.make("a");
-  const b = EnvironmentId.make("b");
-  const projectA = ProjectId.make("project-a");
-  const projectB = ProjectId.make("project-b");
-  const draftId = DraftId.make("load-balance-browser");
-  const driver = ProviderDriverKind.make("opencode");
-  const remoteInstance = ProviderInstanceId.make("remote-opencode");
-  const model = (slug: string, name: string) => ({
-    slug,
-    name,
-    isCustom: false,
-    capabilities: {
-      optionDescriptors: [
-        {
-          id: "effort",
-          type: "select" as const,
-          label: "Effort",
-          options: [{ id: "high", label: "High" }],
-        },
-      ],
-    },
+function setup() {
+  resources.refreshSelection.mockReset();
+  resources.projects = [];
+  resources.pickedEnvironmentId = null;
+  const a = EnvironmentId.make("machine-a");
+  const b = EnvironmentId.make("machine-b");
+  const draftId = DraftId.make("fresh-routing-draft");
+  const projectId = ProjectId.make("project");
+  const store = useComposerDraftStore.getState();
+  store.clearDraftThread(draftId);
+  store.setProjectDraftThreadId(scopeProjectRef(a, projectId), draftId, {
+    environmentSelection: "auto",
+    loadBalancedEnvironmentId: a,
   });
-  const provider = (
-    instanceId: ProviderInstanceId,
-    models: ServerProvider["models"],
-  ): ServerProvider => ({
-    instanceId,
-    displayName: instanceId === remoteInstance ? "Remote OpenCode" : "Local OpenCode",
-    driver,
+  store.setPrompt(draftId, "Keep this prompt");
+  const provider: ServerProvider = {
+    instanceId: ProviderInstanceId.make("codex"),
+    driver: ProviderDriverKind.make("codex"),
     enabled: true,
     installed: true,
-    version: null,
     status: "ready",
     auth: { status: "authenticated" },
-    checkedAt: "2026-11-06T12:00:00Z",
-    models,
+    availability: "available",
+    version: null,
+    checkedAt: "2026-11-10T01:00:00.000Z",
+    models: [],
     slashCommands: [],
     skills: [],
-  });
-  const sources = [
-    {
-      environmentId: a,
-      projectId: projectA,
-      providers: [provider(ProviderInstanceId.make("opencode"), [model("kimi/k2", "Kimi")])],
-    },
-    {
-      environmentId: b,
-      projectId: projectB,
-      providers: [provider(remoteInstance, [model("deepseek/chat", "DeepSeek")])],
-    },
-  ];
-  const environments = [
-    {
-      environmentId: a,
-      projectId: projectA,
-      label: "A",
-      isPrimary: true,
-      machine: "linux" as const,
-    },
-    {
-      environmentId: b,
-      projectId: projectB,
-      label: "B",
-      isPrimary: false,
-      machine: "laptop" as const,
-    },
-  ];
-  const previous = useComposerDraftStore.getState();
-  using _store = {
-    [Symbol.dispose]() {
-      useComposerDraftStore.setState(previous, true);
-    },
   };
-  previous.setProjectDraftThreadId(scopeProjectRef(a, projectA), draftId, {
-    threadId: ThreadId.make("load-balance-thread"),
-  });
-  previous.setPrompt(draftId, "keep my draft");
-  previous.setModelSelection(
+  const input: Parameters<typeof useDraftEnvironmentRouting>[0] = {
     draftId,
-    {
-      instanceId: ProviderInstanceId.make("opencode"),
-      model: "kimi/k2",
-      options: [{ id: "effort", value: "high" }],
-    },
-    { explicit: true },
-  );
-
-  function Draft() {
-    const draft = useComposerDraftStore((store) => store.getDraftThread(draftId));
-    const selection = useComposerDraftStore((store) => {
-      const composer = store.getComposerDraft(draftId);
-      return composer?.activeProvider
-        ? composer.modelSelectionByProvider[composer.activeProvider]
-        : null;
-    });
-    const union = collectLoadBalancingProviders(sources);
-    const routing = useDraftEnvironmentRouting({
-      draftId,
-      draftThread: draft,
-      envLocked: false,
-      automaticEnvironment: draft?.environmentSelection !== "manual",
-      logicalProjectEnvironments: environments,
-      loadBalancingSources: sources,
-      loadBalancingSettings: {
-        loadBalancingStrategy: "hardware",
-        loadBalancingWeights: {},
-      },
-      modelSelection: selection ?? null,
-      selectedProvider: driver,
-      composerHasAttachments: false,
-      activeProjectKey: "project",
-      activeProjectIsScratch: false,
-      projectGroupingSettings: {
-        sidebarProjectGroupingMode: "repository",
-        sidebarProjectGroupingOverrides: {},
-      },
-      sendInFlightRef: { current: false },
-    });
-    const change = (instanceId: ProviderInstanceId, model: string) => {
-      const store = useComposerDraftStore.getState();
-      const next: ModelSelection = {
-        instanceId,
-        model,
-        options: [{ id: "effort", value: "high" }],
-      };
-      store.setModelSelection(draftId, next, { explicit: true, replaceOptions: true });
-    };
-    return (
-      <>
-        <span>{routing.needsLoadBalancing ? "Routing" : `Ready on ${draft?.environmentId}`}</span>
-        <ProviderModelPicker
-          environmentId={null}
-          activeInstanceId={selection?.instanceId ?? remoteInstance}
-          model={selection?.model ?? ""}
-          lockedProvider={null}
-          instanceEntries={deriveProviderInstanceEntries(union)}
-          modelOptionsByInstance={
-            new Map(union.map((provider) => [provider.instanceId, provider.models]))
-          }
-          onInstanceModelChange={change}
-        />
-      </>
-    );
-  }
-  const registry = AtomRegistry.make();
-  using _registry = {
-    [Symbol.dispose]() {
-      registry.dispose();
-    },
+    draftThread: store.getDraftSession(draftId),
+    envLocked: false,
+    automaticEnvironment: true,
+    logicalProjectEnvironments: [a, b].map((environmentId) => ({
+      environmentId,
+      projectId,
+      label: environmentId,
+      isPrimary: environmentId === a,
+      machine: "desktop",
+    })),
+    loadBalancingSources: [a, b].map((environmentId) => ({
+      environmentId,
+      projectId,
+      providers: [provider],
+    })),
+    loadBalancingSettings: { loadBalancingStrategy: "hardware", loadBalancingWeights: {} },
+    referencedThreadContexts: [],
+    modelSelection: { model: "gpt-6.1-sol", instanceId: provider.instanceId },
+    selectedProvider: provider.driver,
+    composerHasAttachments: false,
+    activeProjectKey: "project",
+    activeProjectIsScratch: false,
+    projectGroupingSettings: DEFAULT_UNIFIED_SETTINGS,
+    sendInFlightRef: { current: false },
   };
-  await using screen = await render(
-    <RegistryContext.Provider value={registry}>
-      <Draft />
-    </RegistryContext.Provider>,
+  resources.refreshSelection.mockImplementation(async (ids) =>
+    ids.includes(b) ? { environmentId: b, instanceId: provider.instanceId } : null,
   );
-  await expect.element(screen.getByText("Ready on a")).toBeInTheDocument();
-  await screen.getByRole("button", { name: "Kimi", exact: true }).click();
-  const { page } = await import("vite-plus/test/browser");
-  await page.getByRole("button", { name: "Remote OpenCode", exact: true }).click();
-  await page.getByRole("option", { name: /DeepSeek/ }).click();
-  await expect.element(screen.getByText("Ready on b")).toBeInTheDocument();
-  expect(useComposerDraftStore.getState().getComposerDraft(draftId)).toMatchObject({
-    prompt: "keep my draft",
-    activeProvider: remoteInstance,
-    modelSelectionByProvider: {
-      [remoteInstance]: { model: "deepseek/chat", options: [{ id: "effort", value: "high" }] },
-    },
+  return { a, b, draftId, input, store };
+}
+
+interface HarnessProps {
+  input: Parameters<typeof useDraftEnvironmentRouting>[0];
+  onPrepared?: (ready: boolean | null) => void;
+}
+
+function Harness(props: HarnessProps) {
+  return (
+    <AppAtomRegistryProvider>
+      <RoutingProbe {...props} />
+    </AppAtomRegistryProvider>
+  );
+}
+
+function RoutingProbe({ input, onPrepared }: HarnessProps) {
+  const routing = useDraftEnvironmentRouting(input);
+  const draft = useComposerDraftStore((state) => state.getDraftSession(input.draftId!));
+  const selections = useAtomValue(
+    draftFanoutSelectionsAtom(
+      scopedThreadKey(scopeThreadRef(draft!.environmentId, draft!.threadId)),
+    ),
+  );
+  return (
+    <>
+      <output>
+        {selections?.map((selection) => selection.model).join(", ") ?? "single model"}
+      </output>
+      {input.logicalProjectEnvironments.map(({ environmentId }) => (
+        <button
+          key={environmentId}
+          onClick={() => routing.onEnvironmentChangeStable(environmentId)}
+        >
+          Switch to {environmentId}
+        </button>
+      ))}
+      <span>{draft?.environmentId}</span>
+      <button
+        onClick={async () => {
+          const ready = await routing.refreshBeforeSend();
+          onPrepared?.(ready);
+        }}
+      >
+        Send
+      </button>
+    </>
+  );
+}
+
+it("refreshes a stored automatic choice before sending an unsent draft", async () => {
+  const { a, b, draftId, input, store } = setup();
+  const selections = ["model-a", "model-b"].map((model) =>
+    createModelSelection(ProviderInstanceId.make("codex"), model),
+  );
+  const threadId = input.draftThread!.threadId;
+  const destinationSelections = draftFanoutSelectionsAtom(
+    scopedThreadKey(scopeThreadRef(b, threadId)),
+  );
+  appAtomRegistry.set(destinationSelections, null);
+  appAtomRegistry.set(
+    draftFanoutSelectionsAtom(scopedThreadKey(scopeThreadRef(a, threadId))),
+    selections,
+  );
+  store.setDraftThreadContext(draftId, {
+    branch: "main",
+    envMode: "worktree",
+    environmentSelection: "auto",
   });
-  await act(() =>
-    useComposerDraftStore.getState().setDraftThreadContext(draftId, {
-      projectRef: scopeProjectRef(a, projectA),
-      environmentSelection: "manual",
-      loadBalancedEnvironmentId: null,
+  await using screen = await render(
+    <Harness input={{ ...input, draftThread: store.getDraftSession(draftId) }} />,
+  );
+  await expect.element(screen.getByText(a)).toBeInTheDocument();
+  await screen.getByRole("button", { name: "Send" }).click();
+  await expect.element(screen.getByText(b)).toBeInTheDocument();
+  expect(resources.refreshSelection).toHaveBeenCalledWith([a, b]);
+  expect(store.getDraftSession(draftId)).toMatchObject({
+    loadBalancedEnvironmentId: b,
+    branch: "main",
+    envMode: "worktree",
+  });
+  expect(store.getComposerDraft(draftId)?.prompt).toBe("Keep this prompt");
+  expect(appAtomRegistry.get(destinationSelections)).toEqual(selections);
+});
+
+it.each(["manual", "attachments", "promoted"] as const)(
+  "keeps the machine for %s drafts",
+  async (kind) => {
+    const { a, draftId, input, store } = setup();
+    if (kind === "manual") store.setDraftThreadContext(draftId, { environmentSelection: "manual" });
+    const guardedInput = {
+      ...input,
+      automaticEnvironment: kind !== "manual",
+      composerHasAttachments: kind === "attachments",
+      draftThread:
+        kind === "promoted"
+          ? {
+              ...input.draftThread!,
+              promotedTo: { environmentId: a, threadId: input.draftThread!.threadId },
+            }
+          : input.draftThread,
+    };
+    await using screen = await render(<Harness input={guardedInput} />);
+    await screen.getByRole("button", { name: "Send" }).click();
+    expect(resources.refreshSelection).not.toHaveBeenCalled();
+    expect(store.getDraftSession(draftId)?.environmentId).toBe(a);
+  },
+);
+
+it("does not reuse a stored choice when refreshed resources have no winner", async () => {
+  const { a, input } = setup();
+  resources.refreshSelection.mockResolvedValue(null);
+  const onPrepared = vi.fn();
+  await using screen = await render(<Harness input={input} onPrepared={onPrepared} />);
+  await screen.getByRole("button", { name: "Send" }).click();
+  await expect.element(screen.getByText(a)).toBeInTheDocument();
+  await vi.waitFor(() => expect(onPrepared).toHaveBeenCalledWith(false));
+});
+
+it("abandons a refresh when the draft changes while resources are in flight", async () => {
+  const { a, b, draftId, input, store } = setup();
+  let resolve!: (environmentId: EnvironmentId) => void;
+  resources.refreshSelection.mockReturnValue(
+    new Promise<{ environmentId: EnvironmentId; instanceId: ProviderInstanceId }>((done) => {
+      resolve = (environmentId) =>
+        done({ environmentId, instanceId: ProviderInstanceId.make("codex") });
     }),
   );
-  await expect.element(screen.getByText("Ready on a")).toBeInTheDocument();
+  await using screen = await render(<Harness input={input} />);
+  await screen.getByRole("button", { name: "Send" }).click();
+  await act(async () => {
+    store.setPrompt(draftId, "Edited while checking");
+    resolve(b);
+  });
+  await expect.element(screen.getByText(a)).toBeInTheDocument();
+  expect(store.getComposerDraft(draftId)?.prompt).toBe("Edited while checking");
+});
+
+function fanoutSetup() {
+  const routing = setup();
+  const { a, b, draftId, input, store } = routing;
+  resources.projects = [a, b].map((environmentId) => ({
+    environmentId,
+    id: input.draftThread!.projectId,
+    title: "Project",
+    workspaceRoot: "/workspace/project",
+    defaultModelSelection: null,
+    scripts: [],
+    createdAt: "2026-11-10T01:00:00.000Z",
+    updatedAt: "2026-11-10T01:00:00.000Z",
+  }));
+  const threadId = input.draftThread!.threadId;
+  const selectionsOn = (environmentId: EnvironmentId) =>
+    draftFanoutSelectionsAtom(scopedThreadKey(scopeThreadRef(environmentId, threadId)));
+  const models = (...names: string[]) =>
+    names.map((model) => createModelSelection(ProviderInstanceId.make("codex"), model));
+  appAtomRegistry.set(selectionsOn(b), null);
+  appAtomRegistry.set(selectionsOn(a), models("gpt-6.1-sol", "gpt-6.1-luna"));
+  store.setDraftThreadContext(draftId, {
+    environmentSelection: "manual",
+    loadBalancedEnvironmentId: null,
+    branch: "main",
+    envMode: "worktree",
+  });
+  return { ...routing, selectionsOn, models };
+}
+
+it("keeps the selected models when the draft switches machine by hand", async () => {
+  const { a, b, draftId, input, store, selectionsOn, models } = fanoutSetup();
+  await using screen = await render(
+    <Harness
+      input={{ ...input, automaticEnvironment: false, draftThread: store.getDraftSession(draftId) }}
+    />,
+  );
+  await expect.element(screen.getByText("gpt-6.1-sol, gpt-6.1-luna")).toBeInTheDocument();
+  await screen.getByRole("button", { name: `Switch to ${b}` }).click();
+  await expect.element(screen.getByText(b)).toBeInTheDocument();
+  await expect.element(screen.getByText("gpt-6.1-sol, gpt-6.1-luna")).toBeInTheDocument();
+  expect(store.getComposerDraft(draftId)?.prompt).toBe("Keep this prompt");
+
+  // Changes made on the new machine come back with the draft.
+  await act(async () => appAtomRegistry.set(selectionsOn(b), models("gpt-6.1-sol")));
+  await screen.getByRole("button", { name: `Switch to ${a}` }).click();
+  await expect.element(screen.getByText(a)).toBeInTheDocument();
+  await expect.element(screen.getByText("gpt-6.1-sol", { exact: true })).toBeInTheDocument();
+});
+
+it("keeps the selected models when automatic routing picks another machine", async () => {
+  const { b, draftId, input, store } = fanoutSetup();
+  store.setDraftThreadContext(draftId, { environmentSelection: "auto" });
+  resources.pickedEnvironmentId = b;
+  await using screen = await render(
+    <Harness input={{ ...input, draftThread: store.getDraftSession(draftId) }} />,
+  );
+  await expect.element(screen.getByText(b)).toBeInTheDocument();
+  await expect.element(screen.getByText("gpt-6.1-sol, gpt-6.1-luna")).toBeInTheDocument();
+});
+
+it.each([
+  { name: "takes the destination default", explicit: false, remoteDefault: true, model: "luna" },
+  { name: "keeps a model the user picked", explicit: true, remoteDefault: true, model: "sol" },
+  {
+    name: "keeps the last-used model without a default",
+    explicit: false,
+    remoteDefault: false,
+    model: "sol",
+  },
+])("$name when the draft switches machine by hand", async ({ explicit, remoteDefault, model }) => {
+  const { b, draftId, input, store } = fanoutSetup();
+  const codex = ProviderInstanceId.make("codex");
+  resources.projects = resources.projects.map((project) =>
+    project.environmentId === b && remoteDefault
+      ? { ...project, defaultModelSelection: createModelSelection(codex, "luna") }
+      : project,
+  );
+  store.setStickyModelSelection(createModelSelection(codex, "sol"));
+  store.setModelSelection(draftId, createModelSelection(codex, "sol"), { explicit });
+  await using screen = await render(
+    <Harness
+      input={{ ...input, automaticEnvironment: false, draftThread: store.getDraftSession(draftId) }}
+    />,
+  );
+  await screen.getByRole("button", { name: `Switch to ${b}` }).click();
+  await expect.element(screen.getByText(b)).toBeInTheDocument();
+  const draft = store.getComposerDraft(draftId);
+  expect(draft?.activeProvider).toBe(codex);
+  expect(draft?.modelSelectionByProvider[codex]?.model).toBe(model);
+  expect(draft?.modelSelectionExplicit === true).toBe(explicit);
 });

@@ -6,6 +6,7 @@ import {
   type LoadBalancingCandidate,
 } from "@t3tools/client-runtime/load-balancing";
 import type { EnvironmentId, ModelSelection, ProviderDriverKind } from "@t3tools/contracts";
+import { executeAtomQuery } from "@t3tools/client-runtime/state/runtime";
 import { Atom } from "effect/reactivity";
 import { useContext } from "react";
 
@@ -50,6 +51,7 @@ export function useLoadBalancedEnvironment(
   selection: ModelSelection | null,
   driver: ProviderDriverKind,
   strategy: "hardware" | "usage",
+  observeResources: boolean,
 ) {
   const registry = useContext(RegistryContext);
   const matching = selection
@@ -65,7 +67,40 @@ export function useLoadBalancedEnvironment(
       registry.refresh(serverEnvironment.hostResources({ environmentId, input: {} }));
     }
   };
-  const { evaluatedAt, resources } = useAtomValue(hostResourcesAtom(environmentIds.join("\n")));
+  const refreshSelection = async (ids: readonly EnvironmentId[]) => {
+    if (!selection) return null;
+    const snapshots = await Promise.all(
+      ids.map(async (environmentId) => {
+        const result = await executeAtomQuery(
+          registry,
+          serverEnvironment.hostResources({ environmentId, input: {} }),
+          { refresh: true, reportFailure: false, signal: AbortSignal.timeout(5_000) },
+        );
+        return {
+          environmentId,
+          resources: result._tag === "Success" ? result.value : null,
+          receivedAt: Date.now(),
+        };
+      }),
+    );
+    return chooseLoadBalancedProvider({
+      candidates: matching.map((candidate) => {
+        const resource = snapshots.find((entry) => entry.environmentId === candidate.environmentId);
+        return {
+          ...candidate,
+          resources: resource?.resources ?? null,
+          receivedAt: resource?.receivedAt ?? 0,
+        };
+      }),
+      selection,
+      driver,
+      strategy,
+      now: Math.max(0, ...snapshots.map((entry) => entry.receivedAt)),
+    });
+  };
+  const { evaluatedAt, resources } = useAtomValue(
+    hostResourcesAtom(observeResources ? environmentIds.join("\n") : ""),
+  );
   const pending = resources.some((resource) => resource.pending);
   const selected = selection
     ? chooseLoadBalancedProvider({
@@ -88,6 +123,7 @@ export function useLoadBalancedEnvironment(
   const environmentId = (selected?.environmentId ?? null) as EnvironmentId | null;
   return {
     refresh,
+    refreshSelection,
     pending,
     environmentId,
     instanceId: selected?.instanceId ?? null,

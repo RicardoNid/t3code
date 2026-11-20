@@ -55,9 +55,15 @@ it.live.each([
 if [ "$1" = "-" ]; then
   case "$2" in
     */server-runtime.json)
-      [ "$T3_TEST_EXISTING" = "yes" ] || exit 1
+      if [ "$T3_TEST_EXISTING" != "yes" ]; then
+        pidfile="$HOME/.t3/ssh-launch/fixture/pid"
+        [ -s "$pidfile" ] || exit 1
+        printf '%s 3773' "$(cat "$pidfile")"
+        exit 0
+      fi
       printf '%s 3773' "$T3_TEST_PID" ;;
     */port) printf '3773' ;;
+    */.t3) exit 1 ;;
   esac
 fi
 exit 0
