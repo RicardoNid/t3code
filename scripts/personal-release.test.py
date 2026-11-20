@@ -16,6 +16,14 @@ spec.loader.exec_module(release)
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_manual_build_numbers_cannot_collide_with_later_actions_runs(self):
+        self.assertEqual(release.next_version('v0.1.11', '20261120', 5, [
+            'v0.1.11-personal.20261120.6', 'v0.1.11-personal.20261120.10',
+            'v0.1.12-personal.20261120.99', 'v0.1.11-personal.20261119.99',
+        ]), '0.1.11-personal.20261120.11')
+        self.assertEqual(release.next_version('v0.1.11', '20261121', 12, []),
+                         '0.1.11-personal.20261121.12')
+
     def test_draft_lookup_uses_the_release_list_when_the_tag_endpoint_is_published_only(self):
         draft = {'id': 12, 'tag_name': 'v0.1.11-personal.20261120.6', 'draft': True, 'assets': []}
         def response(path):

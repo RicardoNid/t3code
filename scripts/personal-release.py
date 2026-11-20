@@ -70,6 +70,13 @@ def release_files(version):
             'latest-mac.yml', 'latest-linux.yml'}
 
 
+def next_version(upstream_tag, day, run_number, tags):
+    prefix = f'{upstream_tag[1:]}-personal.{day}.'
+    pattern = re.compile('v' + re.escape(prefix) + r'(\d+)')
+    counters = [int(match.group(1)) for tag in tags if (match := pattern.fullmatch(tag))]
+    return prefix + str(max(int(run_number), max(counters, default=0) + 1))
+
+
 def digest_file(path, algorithm='sha256'):
     digest = hashlib.new(algorithm)
     with path.open('rb') as stream:
@@ -161,7 +168,9 @@ def resolve():
                 or base not in (provenance.get('forkBase'), commit)):
             raise RuntimeError('Existing candidate provenance changed; review required')
     else:
-        version = tag[1:] + '-personal.' + datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d') + '.' + os.environ['GITHUB_RUN_NUMBER']
+        version = next_version(tag, datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d'),
+                               os.environ['GITHUB_RUN_NUMBER'],
+                               git('for-each-ref', '--format=%(refname:short)', 'refs/tags').splitlines())
         provenance = {'upstreamTag': tag, 'upstreamSha': upstream, 'forkBase': base,
                       'recipe': recipe, 'version': version, 'releaseTag': f'v{version}',
                       'platforms': ['macos-arm64', 'ubuntu-26.04-x64']}
