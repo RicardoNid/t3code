@@ -88,8 +88,22 @@ const layer = Layer.mergeAll(
   Layer.succeed(OpenCodeRuntime.OpenCodeRuntime, openCode2Runtime),
 ).pipe(Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
 
+const createTestDriver = (options: Parameters<typeof OpenCodeDriver.create>[0]) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-opencode-test-" });
+    return yield* OpenCodeDriver.create({
+      ...options,
+      environment: [
+        { name: "XDG_CONFIG_HOME", value: NodePath.join(root, "config"), sensitive: false },
+        { name: "XDG_DATA_HOME", value: NodePath.join(root, "data"), sensitive: false },
+        ...(options.environment ?? []),
+      ],
+    });
+  });
+
 const create = (config: Partial<OpenCodeSettings>, http: HttpClient.HttpClient, enabled = true) =>
-  OpenCodeDriver.create({
+  createTestDriver({
     instanceId: ProviderInstanceId.make("opencode-test"),
     displayName: undefined,
     environment: [],
@@ -216,7 +230,7 @@ it.live("discovers models through a home-relative OpenCode wrapper", () =>
     );
     if (!windows) yield* fs.chmod(wrapperPath, 0o755);
 
-    const instance = yield* OpenCodeDriver.create({
+    const instance = yield* createTestDriver({
       instanceId: ProviderInstanceId.make("opencode-home"),
       displayName: undefined,
       environment: [],
@@ -966,7 +980,7 @@ it.layer(layer)("OpenCodeDriver runtime selection", (it) => {
             return { url, version, isRunning: Effect.succeed(true), exitCode: Effect.never };
           }),
       };
-      const instance = yield* OpenCodeDriver.create({
+      const instance = yield* createTestDriver({
         instanceId: ProviderInstanceId.make("opencode-usage-recovery"),
         displayName: undefined,
         environment: [
@@ -1033,10 +1047,11 @@ it.layer(layer)("OpenCodeDriver runtime selection", (it) => {
           )
         : undefined;
       yield* TestClock.adjust("5 minutes");
+      const observedRecovery = recovery ? Array.from(yield* Fiber.join(recovery)) : undefined;
       const recovered = yield* instance.snapshot.getSnapshot;
       const expectedReads = !scenario.enabled ? 0 : shouldRecover ? 2 : 1;
       assert.strictEqual(usageReads, expectedReads);
-      if (recovery) assert.deepStrictEqual(Array.from(yield* Fiber.join(recovery)), [recovered]);
+      if (observedRecovery) assert.deepStrictEqual(observedRecovery, [recovered]);
       assert.strictEqual(
         recovered.usageLimits?.unavailable?.reason,
         shouldRecover ? undefined : initialReason,
@@ -1097,7 +1112,7 @@ it.layer(layer)("OpenCodeDriver runtime selection", (it) => {
             return { url, version, isRunning: Effect.succeed(true), exitCode: Effect.never };
           }),
       };
-      const instance = yield* OpenCodeDriver.create({
+      const instance = yield* createTestDriver({
         instanceId: ProviderInstanceId.make("opencode-go-key-only"),
         displayName: undefined,
         environment: [
@@ -1320,7 +1335,7 @@ it.layer(layerUpdate)("OpenCodeDriver updates", (it) => {
           NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-opencode-driver-update-")),
         );
         const binaryPath = npmGlobalInstall(NodePath.join(root, "v1"), ["opencode-ai"], "opencode");
-        const instance = yield* OpenCodeDriver.create({
+        const instance = yield* createTestDriver({
           instanceId: ProviderInstanceId.make("opencode-update"),
           displayName: undefined,
           environment: [],
