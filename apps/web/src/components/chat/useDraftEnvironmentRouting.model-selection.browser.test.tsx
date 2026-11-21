@@ -10,6 +10,8 @@ import {
   type ModelSelection,
   type ServerProvider,
 } from "@t3tools/contracts";
+import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
+import { getAppModelOptionsForInstance } from "../../modelSelection";
 import { Atom, AtomRegistry, AsyncResult } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
 import { render, act } from "../../../test/render";
@@ -58,7 +60,7 @@ it("routes a picked remote-only model to its real instance and preserves draft c
   const model = (slug: string, name: string) => ({
     slug,
     name,
-    isCustom: false,
+    isCustom: slug === "deepseek/chat",
     capabilities: {
       optionDescriptors: [
         {
@@ -144,6 +146,7 @@ it("routes a picked remote-only model to its real instance and preserves draft c
         : null;
     });
     const union = collectLoadBalancingProviders(sources);
+    const entries = deriveProviderInstanceEntries(union);
     const routing = useDraftEnvironmentRouting({
       draftId,
       draftThread: draft,
@@ -184,9 +187,14 @@ it("routes a picked remote-only model to its real instance and preserves draft c
           activeInstanceId={selection?.instanceId ?? remoteInstance}
           model={selection?.model ?? ""}
           lockedProvider={null}
-          instanceEntries={deriveProviderInstanceEntries(union)}
+          instanceEntries={entries}
           modelOptionsByInstance={
-            new Map(union.map((provider) => [provider.instanceId, provider.models]))
+            new Map(
+              entries.map((entry) => [
+                entry.instanceId,
+                getAppModelOptionsForInstance(DEFAULT_UNIFIED_SETTINGS, entry),
+              ]),
+            )
           }
           onInstanceModelChange={change}
         />

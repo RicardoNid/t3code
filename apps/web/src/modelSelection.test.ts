@@ -13,6 +13,7 @@ import {
   type UnifiedSettings,
 } from "@t3tools/contracts/settings";
 import { describe, expect, it } from "vite-plus/test";
+import { collectLoadBalancingProviders } from "@t3tools/client-runtime/load-balancing";
 import { createModelSelection } from "@t3tools/shared/model";
 import { deriveEffectiveComposerModelState } from "./composerDraftStore";
 import { getComposerProviderState } from "./components/chat/composerProviderState";
@@ -219,6 +220,60 @@ describe("scoped default model selections", () => {
 });
 
 describe("instance-scoped model selection", () => {
+  it("keeps remote custom and locally hidden models in the balanced composer catalog", () => {
+    const instanceId = ProviderInstanceId.make("opencode");
+    const local = provider({
+      provider: ProviderDriverKind.make("opencode"),
+      instanceId,
+      models: ["kimi/k2"],
+    });
+    const remote = {
+      ...local,
+      models: [
+        { slug: "deepseek/chat", name: "DeepSeek", isCustom: true, capabilities: {} },
+        { slug: "remote/builtin", name: "Remote", isCustom: false, capabilities: {} },
+      ],
+    };
+    const settings: UnifiedSettings = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      providerModelPreferences: {
+        [instanceId]: { hiddenModels: ["remote/builtin"], modelOrder: [] },
+      },
+      providerInstances: {
+        [instanceId]: { driver: local.driver, config: { customModels: ["stale/local"] } },
+      },
+    };
+    const union = collectLoadBalancingProviders([
+      { environmentId: "local", projectId: null, providers: [local] },
+      { environmentId: "remote", projectId: null, providers: [remote] },
+    ]);
+    const entry = providerInstanceEntriesFor(union, settings, null, true)[0]!;
+    expect(getAppModelOptionsForInstance(settings, entry).map((model) => model.slug)).toEqual([
+      "kimi/k2",
+      "deepseek/chat",
+      "remote/builtin",
+    ]);
+    expect(resolveAppModelSelectionForInstance(instanceId, settings, union, "deepseek/chat")).toBe(
+      "deepseek/chat",
+    );
+    expect(
+      deriveEffectiveComposerModelState({
+        draft: {
+          activeProvider: instanceId,
+          modelSelectionExplicit: true,
+          modelSelectionByProvider: { [instanceId]: { instanceId, model: "deepseek/chat" } },
+        },
+        threadStarted: false,
+        threadModelSelection: null,
+        projectModelSelection: null,
+        providers: union,
+        selectedProvider: local.driver,
+        selectedInstanceId: instanceId,
+        settings,
+      }).selectedModel,
+    ).toBe("deepseek/chat");
+  });
+
   it("keeps custom models on the provider instance that declared them", () => {
     const providers = [
       provider({

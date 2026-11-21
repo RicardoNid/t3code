@@ -53,7 +53,8 @@ export interface LoadBalancingSource {
   readonly projectId: ProjectId | null;
   readonly providers: readonly ServerProvider[];
   readonly settings?:
-    | Pick<ServerSettings, "providerInstances" | "projectSettingsOverrides">
+    | (Pick<ServerSettings, "providerInstances" | "projectSettingsOverrides"> &
+        Partial<Pick<ServerSettings, "providerModelPreferences">>)
     | undefined;
 }
 
@@ -79,19 +80,30 @@ export function eligibleLoadBalancingProviders(
     )
     .map((provider) => ({
       ...provider,
+      models: provider.models.filter(
+        (model) =>
+          !source.settings?.providerModelPreferences?.[provider.instanceId]?.hiddenModels.includes(
+            model.slug,
+          ),
+      ),
       enabled: true,
       status: provider.status === "disabled" ? ("ready" as const) : provider.status,
     }));
+}
+
+export interface LoadBalancedProvider extends ServerProvider {
+  readonly sourceInstanceId: ProviderInstanceId;
+}
+
+export function isLoadBalancedProvider(provider: ServerProvider): provider is LoadBalancedProvider {
+  return "sourceInstanceId" in provider && typeof provider.sourceInstanceId === "string";
 }
 
 export function collectLoadBalancingProviders(
   sources: readonly LoadBalancingSource[],
   strategy: "hardware" | "usage" = "hardware",
 ) {
-  const union = new Map<
-    string,
-    ServerProvider & { readonly sourceInstanceId: ProviderInstanceId }
-  >();
+  const union = new Map<string, LoadBalancedProvider>();
   const ids = new Set<string>();
   const reservedIds = new Set(
     sources.flatMap((source) => source.providers.map((provider) => provider.instanceId)),

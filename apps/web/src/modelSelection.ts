@@ -16,6 +16,7 @@ import {
   readCustomModelEntries,
   resolveSelectableModel,
 } from "@t3tools/shared/model";
+import { isLoadBalancedProvider } from "@t3tools/client-runtime/load-balancing";
 import { getComposerProviderState } from "./components/chat/composerProviderState";
 import { type ClientSettings, UnifiedSettings } from "@t3tools/contracts/settings";
 import { resolveModelPreferences } from "@t3tools/shared/serverSettings";
@@ -211,6 +212,10 @@ export function getAppModelOptionsForInstance(
   entry: ProviderInstanceEntry,
   selectedModel?: string | null,
 ): AppModelOption[] {
+  // The union already reflects each source's settings; local settings cannot rebuild it.
+  if (isLoadBalancedProvider(entry.snapshot)) {
+    return entry.models.map((model) => toAppModelOption(model, entry.driverKind));
+  }
   const options: AppModelOption[] = entry.models
     .filter((model) => !model.isCustom)
     .map((model) => toAppModelOption(model, entry.driverKind));

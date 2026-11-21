@@ -156,6 +156,27 @@ describe("automatic model routing", () => {
     expect(union.map((provider) => provider.sourceInstanceId)).toEqual([instanceId, instanceId]);
     expect(union[0]?.models.map((model) => model.slug)).toEqual([selection.model, "kimi/k2"]);
     expect(union[0]?.instanceId).not.toBe(union[1]?.instanceId);
+    const hiddenSettings = {
+      providerInstances: { [instanceId]: { driver, enabled: true, config: {} } },
+      projectSettingsOverrides: {},
+      providerModelPreferences: {
+        [instanceId]: { hiddenModels: [selection.model], modelOrder: [] },
+      },
+    };
+    const hiddenOnA = {
+      environmentId: "a",
+      projectId: null,
+      providers: [provider({ instanceId })],
+      settings: hiddenSettings,
+    };
+    expect(collectLoadBalancingProviders([hiddenOnA])[0]?.models).toEqual([]);
+    expect(
+      collectLoadBalancingProviders([
+        hiddenOnA,
+        { environmentId: "b", projectId: null, providers: [provider({ instanceId })] },
+      ])[0]?.models.map((model) => model.slug),
+    ).toEqual([selection.model]);
+
     expect(
       pick([
         candidate("other-driver", { driver: ProviderDriverKind.make("codex") }, 64),
