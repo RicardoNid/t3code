@@ -1,3 +1,4 @@
+import { ModelBrandIcon } from "../ModelBrandIcon";
 import { formatProviderSkillDisplayName } from "@t3tools/shared/inlineSkills";
 import type { ComposerPathSearchTarget } from "@t3tools/client-runtime/state/threads";
 import {
@@ -253,13 +254,19 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
         />
       ) : null}
       {props.item.type === "model" ? (
-        <ProviderInstanceIcon
-          driverKind={props.item.driverKind}
-          displayName={props.item.providerDisplayName}
-          acpRegistryAgentId={props.item.acpRegistryAgentId}
-          acpRegistryIconUrl={props.item.acpRegistryIconUrl}
-          className="size-4 shrink-0"
-          iconClassName="size-4"
+        <ModelBrandIcon
+          model={props.item.model}
+          className="size-4"
+          fallback={
+            <ProviderInstanceIcon
+              driverKind={props.item.driverKind}
+              displayName={props.item.providerDisplayName}
+              acpRegistryAgentId={props.item.acpRegistryAgentId}
+              acpRegistryIconUrl={props.item.acpRegistryIconUrl}
+              className="size-4 shrink-0"
+              iconClassName="size-4"
+            />
+          }
         />
       ) : null}
       {pullRequestPresentation ? (

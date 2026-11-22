@@ -1,3 +1,4 @@
+import { ModelBrandIcon } from "../ModelBrandIcon";
 import { T, useGT, useLocale, Var } from "gt-react";
 import { formatPercent, formatTokens, formatUsd } from "@t3tools/shared/usageFormat";
 import { isModelCostUnknown, type ModelTotals } from "@t3tools/shared/usageMerge";
@@ -79,10 +80,16 @@ export function UsageModelDialog({
       <DialogPopup className="max-w-3xl">
         <DialogHeader>
           <div className="flex items-center gap-2">
-            <ProviderInstanceIcon
-              driverKind={presentation.driverKind}
-              displayName={presentation.label}
-              iconClassName="size-5"
+            <ModelBrandIcon
+              model={model.model}
+              className="size-5"
+              fallback={
+                <ProviderInstanceIcon
+                  driverKind={presentation.driverKind}
+                  displayName={presentation.label}
+                  iconClassName="size-5"
+                />
+              }
             />
             <DialogTitle>{model.model}</DialogTitle>
           </div>

@@ -1,3 +1,4 @@
+import { cn } from "../lib/utils";
 import type { ReactNode } from "react";
 import { modelBrand } from "../sidebarPersonalization";
 import { ClaudeAI, OpenAI } from "./Icons";
@@ -28,14 +29,22 @@ const images = {
   yi,
 };
 
-export function ModelBrandIcon({ model, fallback }: { model: string; fallback: ReactNode }) {
+export function ModelBrandIcon({
+  model,
+  fallback,
+  className,
+}: {
+  model: string;
+  fallback: ReactNode;
+  className?: string;
+}) {
   const brand = modelBrand(model);
   if (!brand) return fallback;
-  if (brand === "claude") return <ClaudeAI className="size-4" />;
-  if (brand === "openai") return <OpenAI className="size-4" />;
+  if (brand === "claude") return <ClaudeAI className={cn("size-4", className)} />;
+  if (brand === "openai") return <OpenAI className={cn("size-4", className)} />;
   return (
     <span
-      className="size-4 shrink-0 bg-current"
+      className={cn("size-4 shrink-0 bg-current", className)}
       style={{ mask: `url("${images[brand]}") center / contain no-repeat` }}
       aria-hidden
     />

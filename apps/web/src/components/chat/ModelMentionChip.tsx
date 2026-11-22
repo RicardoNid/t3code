@@ -1,3 +1,4 @@
+import { ModelBrandIcon } from "../ModelBrandIcon";
 import { useGT } from "gt-react";
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId, ProviderDriverKind } from "@t3tools/contracts";
@@ -104,13 +105,19 @@ export function ModelMentionChip(props: {
       kind="neutral"
       accent={accent}
       icon={
-        <ProviderInstanceIcon
-          driverKind={presentation.driverKind}
-          displayName={presentation.providerDisplayName}
-          acpRegistryAgentId={presentation.acpRegistryAgentId}
-          acpRegistryIconUrl={presentation.acpRegistryIconUrl}
-          className="z-auto"
-          iconClassName="size-[1em]"
+        <ModelBrandIcon
+          model={props.model}
+          className="size-[1em]"
+          fallback={
+            <ProviderInstanceIcon
+              driverKind={presentation.driverKind}
+              displayName={presentation.providerDisplayName}
+              acpRegistryAgentId={presentation.acpRegistryAgentId}
+              acpRegistryIconUrl={presentation.acpRegistryIconUrl}
+              className="z-auto"
+              iconClassName="size-[1em]"
+            />
+          }
         />
       }
       label={presentation.label}
