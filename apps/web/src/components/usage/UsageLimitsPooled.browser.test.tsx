@@ -139,3 +139,54 @@ it("keeps a single API balance through refresh and filtering while hiding subscr
   await expect.element(screen.getByText("Balance unavailable. Refresh to retry.")).toBeVisible();
   await expect.element(screen.getByText("12.345 CNY", { exact: true })).not.toBeInTheDocument();
 });
+
+it("keeps GLM subscription quotas distinct from balances and deduplicates the same seat across devices", async () => {
+  const balance = {
+    vendor: "glm",
+    credentialFingerprint: "glm-seat",
+    checkedAt,
+    accountType: "subscription" as const,
+    balances: [],
+    windows: [
+      {
+        id: "glm_3_5",
+        kind: "session" as const,
+        label: "GLM · 5 hours",
+        usedPercent: 1,
+        windowDurationMins: 300,
+      },
+      {
+        id: "glm_6_1",
+        kind: "weekly" as const,
+        label: "GLM · Weekly",
+        usedPercent: 5,
+        windowDurationMins: 10080,
+      },
+    ],
+  };
+  const account = {
+    ...managedChatGpt("opencode", "OpenCode"),
+    driver: ProviderDriverKind.make("opencode"),
+    usageLimits: { checkedAt, windows: [], apiBalances: [balance] },
+  };
+  const presentation = {
+    entry: { target: { label: "Device" } },
+    serverConfig: { providers: [account] },
+  };
+  await using screen = await render(
+    <UsageLimitsPooled
+      presentations={
+        new Map([
+          [EnvironmentId.make("a"), presentation],
+          [EnvironmentId.make("b"), presentation],
+        ])
+      }
+      now={Date.parse(checkedAt)}
+    />,
+  );
+  await expect.element(screen.getByRole("region", { name: "API subscriptions" })).toBeVisible();
+  await expect.element(screen.getByText("99% left", { exact: true })).toBeVisible();
+  await expect.element(screen.getByText("95% left", { exact: true })).toBeVisible();
+  expect(screen.getByText("GLM · 5 hours", { exact: true }).all()).toHaveLength(1);
+  await expect.element(screen.getByText("Balance lookup unavailable")).not.toBeInTheDocument();
+});

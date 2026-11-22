@@ -49,6 +49,8 @@ export const ServerProviderApiBalance = Schema.Struct({
   credentialFingerprint: TrimmedNonEmptyString,
   checkedAt: IsoDateTime,
   balances: Schema.Array(Schema.Struct({ currency: TrimmedNonEmptyString, total: BalanceAmount })),
+  windows: Schema.optional(ForwardCompatibleArray(ServerProviderUsageWindow)),
+  accountType: Schema.optional(Schema.Literal("subscription")),
   unavailable: Schema.optional(Schema.Literals(["probeFailed", "unsupported"])),
 });
 export type ServerProviderApiBalance = typeof ServerProviderApiBalance.Type;

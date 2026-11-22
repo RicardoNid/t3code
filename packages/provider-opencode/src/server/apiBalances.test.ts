@@ -405,3 +405,88 @@ it.effect(
       );
     }).pipe(Effect.scoped, Effect.provide(services)),
 );
+
+it.effect(
+  "reads separate GLM coding accounts, validates business success and never exposes keys",
+  () =>
+    Effect.gen(function* () {
+      const result = yield* readOpenCodeApiBalances({
+        ...input({ "zhipuai-coding-plan": key }),
+        environment: {
+          ...input({ "zhipuai-coding-plan": key }).environment,
+          OPENCODE_CONFIG_CONTENT: JSON.stringify({
+            provider: {
+              team: {
+                options: {
+                  baseURL: "https://open.bigmodel.cn/api/coding/paas/v4",
+                  apiKey: "another-fake-glm-key",
+                  headers: {
+                    "Bigmodel-Organization": "org-test",
+                    "Bigmodel-Project": "project-test",
+                  },
+                },
+              },
+            },
+          }),
+        },
+      }).pipe(
+        Effect.provideService(
+          HttpClient.HttpClient,
+          HttpClient.make((request) => {
+            const team = request.headers["bigmodel-organization"] === "org-test";
+            NodeAssert.equal(
+              request.url,
+              `https://open.bigmodel.cn/api/monitor/usage/quota/limit${team ? "?type=2" : ""}`,
+            );
+            if (team) NodeAssert.equal(request.headers["bigmodel-project"], "project-test");
+            return Effect.succeed(
+              HttpClientResponse.fromWeb(
+                request,
+                Response.json({
+                  code: 200,
+                  success: true,
+                  data: {
+                    limits: [
+                      {
+                        type: "CREDIT_LIMIT",
+                        unit: 3,
+                        number: 5,
+                        percentage: 25,
+                        nextResetTime: 1795300000000,
+                      },
+                      { type: "TOKENS_LIMIT", unit: 6, number: 1, percentage: 60 },
+                    ],
+                  },
+                }),
+              ),
+            );
+          }),
+        ),
+      );
+      NodeAssert.equal(result.length, 2);
+      NodeAssert.notEqual(result[0]?.credentialFingerprint, result[1]?.credentialFingerprint);
+      NodeAssert.deepEqual(
+        result[0]?.windows?.map((w) => [w.kind, w.usedPercent, w.windowDurationMins]),
+        [
+          ["session", 25, 300],
+          ["weekly", 60, 10080],
+        ],
+      );
+      NodeAssert.ok(!JSON.stringify(result).includes(key.key));
+      const failed = yield* readOpenCodeApiBalances(input({ "zhipuai-coding-plan": key })).pipe(
+        Effect.provideService(
+          HttpClient.HttpClient,
+          HttpClient.make((request) =>
+            Effect.succeed(
+              HttpClientResponse.fromWeb(
+                request,
+                Response.json({ code: 500, success: false, data: { limits: [] } }),
+              ),
+            ),
+          ),
+        ),
+      );
+      NodeAssert.equal(failed[0]?.unavailable, "probeFailed");
+      NodeAssert.equal(failed[0]?.windows, undefined);
+    }).pipe(Effect.provide(services)),
+);

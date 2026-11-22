@@ -1,3 +1,5 @@
+import { ProviderDriverKind } from "@t3tools/contracts";
+import { ModelBrandIcon } from "../ModelBrandIcon";
 import deepseekIcon from "../../../../../packages/shared/assets/model-icons/deepseek.svg";
 import kimiIcon from "../../../../../packages/shared/assets/model-icons/kimi.svg";
 import {
@@ -41,7 +43,14 @@ import { Button } from "../ui/button";
 import { OpenAI } from "../Icons";
 import { Alert, AlertTitle } from "../ui/alert";
 import { Popover, PopoverCreateHandle, PopoverPopup, PopoverTrigger } from "../ui/popover";
-import { PaceIcon, ResetCreditDialog, barColor, usePaceMark, useResetCredit } from "./UsageLimits";
+import {
+  LimitWindows,
+  PaceIcon,
+  ResetCreditDialog,
+  barColor,
+  usePaceMark,
+  useResetCredit,
+} from "./UsageLimits";
 import {
   collectExternalUsageLinks,
   collectLimitNotices,
@@ -685,13 +694,16 @@ export function UsageLimitsPooled({
   const [segmentPopover] = useState(() => PopoverCreateHandle<SegmentPayload>());
   const segmentPopoverActions = useRef<PopoverPrimitive.Root.Actions | null>(null);
   const pools = collectLimitPools(collectLimitAccounts(presentations), now);
-  const balances = collectApiBalances(presentations);
+  const apiAccounts = collectApiBalances(presentations);
+  const balances = apiAccounts.filter(({ balance }) => balance.accountType !== "subscription");
+  const subscriptions = apiAccounts.filter(({ balance }) => balance.accountType === "subscription");
   const notices = collectLimitNotices(presentations, m);
   const externalLinks = collectExternalUsageLinks(presentations, m);
   return (
     <div className="flex flex-col gap-8">
       {pools.length === 0 &&
       balances.length === 0 &&
+      subscriptions.length === 0 &&
       notices.length === 0 &&
       externalLinks.length === 0 ? (
         <p className="text-sm text-muted-foreground">
@@ -724,7 +736,13 @@ export function UsageLimitsPooled({
                         style={{ mask: `url("${icon}") center / contain no-repeat` }}
                       />
                     ) : null}
-                    <span>{apiBalanceVendorLabel(balance.vendor)}</span>
+                    <span>
+                      {apiBalanceVendorLabel(balance.vendor)}
+                      {balances.filter((account) => account.balance.vendor === balance.vendor)
+                        .length > 1
+                        ? ` · ${balances.findIndex((account) => account.id === id) + 1}`
+                        : ""}
+                    </span>
                   </div>
                   {balance.unavailable ? (
                     <span className="text-xs text-muted-foreground">
@@ -743,6 +761,34 @@ export function UsageLimitsPooled({
               );
             })}
           </div>
+        </section>
+      ) : null}
+      {subscriptions.length > 0 ? (
+        <section aria-label={gt("API subscriptions")} className="flex flex-col gap-3">
+          <h2 className="text-sm font-medium">{gt("API subscriptions")}</h2>
+          {subscriptions.map(({ id, balance }, index) => (
+            <div key={id} className="flex flex-col gap-3 rounded-lg border border-border/60 p-3">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <ModelBrandIcon model={balance.vendor} fallback={null} />
+                <span>
+                  {apiBalanceVendorLabel(balance.vendor)} ·{" "}
+                  {gt("Account {number}", { number: index + 1 })}
+                </span>
+              </div>
+              {balance.unavailable ? (
+                <span className="text-xs text-muted-foreground">
+                  {gt("Usage unavailable. Refresh to retry.")}
+                </span>
+              ) : (
+                <LimitWindows
+                  driver={ProviderDriverKind.make("opencode")}
+                  windows={balance.windows ?? []}
+                  now={now}
+                  compact
+                />
+              )}
+            </div>
+          ))}
         </section>
       ) : null}
       <SegmentPopoverContext value={segmentPopover}>

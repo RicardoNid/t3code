@@ -1,3 +1,4 @@
+import { ModelBrandIcon } from "../ModelBrandIcon";
 import { type ProviderDriverKind, type ProviderInstanceId } from "@t3tools/contracts";
 import { T, useGT } from "gt-react";
 import { memo } from "react";
@@ -56,17 +57,22 @@ export const ModelListRow = memo(function ModelListRow(props: {
       )}
     >
       {/* One row shape in every tab: the logo names the provider, so Favorites needs no second line. */}
-      <ProviderInstanceIcon
-        driverKind={props.driverKind}
-        displayName={props.providerDisplayName}
-        accentColor={props.providerAccentColor}
-        acpRegistryAgentId={props.acpRegistryAgentId}
-        acpRegistryIconUrl={props.acpRegistryIconUrl}
-        showBadge={props.showInstanceBadge}
-        className="size-4"
-        iconClassName="size-4"
-        indicatorBackground="var(--popover)"
-        badgeClassName="right-[-0.125rem] bottom-[-0.125rem] h-3 min-w-3 px-0.5 text-5xs"
+      <ModelBrandIcon
+        model={props.slug}
+        fallback={
+          <ProviderInstanceIcon
+            driverKind={props.driverKind}
+            displayName={props.providerDisplayName}
+            accentColor={props.providerAccentColor}
+            acpRegistryAgentId={props.acpRegistryAgentId}
+            acpRegistryIconUrl={props.acpRegistryIconUrl}
+            showBadge={props.showInstanceBadge}
+            className="size-4"
+            iconClassName="size-4"
+            indicatorBackground="var(--popover)"
+            badgeClassName="right-[-0.125rem] bottom-[-0.125rem] h-3 min-w-3 px-0.5 text-5xs"
+          />
+        }
       />
       <div className="flex min-w-0 flex-1 items-center gap-2 text-left">
         <div

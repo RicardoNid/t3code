@@ -42,7 +42,11 @@ export const readConfiguredApiProviders = Effect.fn("OpenCode.readConfiguredApiP
     );
     const providers = new Map<
       string,
-      { readonly apiKey?: string | null; readonly baseURL?: string | null }
+      {
+        readonly apiKey?: string | null;
+        readonly baseURL?: string | null;
+        readonly quotaHeaders?: { organization: string | null; project: string | null };
+      }
     >();
     const resolveValue = Effect.fn("OpenCode.resolveConfigCredentialValue")(function* (
       value: unknown,
@@ -81,6 +85,20 @@ export const readConfiguredApiProviders = Effect.fn("OpenCode.readConfiguredApiP
           ...previous,
           ...(Object.hasOwn(options, "apiKey")
             ? { apiKey: yield* resolveValue(options.apiKey, directory) }
+            : {}),
+          ...(Object.hasOwn(options, "headers")
+            ? {
+                quotaHeaders: {
+                  organization: yield* resolveValue(
+                    (options.headers as Record<string, unknown> | null)?.["Bigmodel-Organization"],
+                    directory,
+                  ),
+                  project: yield* resolveValue(
+                    (options.headers as Record<string, unknown> | null)?.["Bigmodel-Project"],
+                    directory,
+                  ),
+                },
+              }
             : {}),
           ...(Object.hasOwn(options, "baseURL")
             ? { baseURL: yield* resolveValue(options.baseURL, directory) }

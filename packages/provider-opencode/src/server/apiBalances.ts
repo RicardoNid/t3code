@@ -12,6 +12,7 @@ import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { GlmQuota, glmUsageWindows } from "./glmUsage.ts";
 import { readConfiguredApiProviders } from "./apiConfig.ts";
 import { readStoredApiKey } from "./apiCredentials.ts";
 
@@ -58,9 +59,20 @@ const vendors = [
     origin: "https://api.kimi.com/coding",
     endpoint: null,
   },
+  {
+    id: "zhipuai-coding-plan",
+    vendor: "glm",
+    origin: "https://open.bigmodel.cn",
+    endpoint: "/api/monitor/usage/quota/limit",
+  },
   { id: "zhipuai", vendor: "glm", origin: "https://open.bigmodel.cn", endpoint: null },
   { id: "zai", vendor: "glm", origin: "https://api.z.ai", endpoint: null },
-  { id: "zai-coding-plan", vendor: "glm", origin: "https://api.z.ai", endpoint: null },
+  {
+    id: "zai-coding-plan",
+    vendor: "glm",
+    origin: "https://api.z.ai",
+    endpoint: "/api/monitor/usage/quota/limit",
+  },
   { id: "xiaomi", vendor: "mimo", origin: "https://api.xiaomimimo.com", endpoint: null },
   { id: "alibaba", vendor: "qwen", origin: "https://dashscope-intl.aliyuncs.com", endpoint: null },
   { id: "alibaba-cn", vendor: "qwen", origin: "https://dashscope.aliyuncs.com", endpoint: null },
@@ -107,13 +119,21 @@ export const readOpenCodeApiBalances = Effect.fn("OpenCode.readApiBalances")(fun
     const hasDatabase =
       !env.OPENCODE_AUTH_CONTENT && db !== ":memory:" && (yield* fs.exists(databasePath));
     const checkedAt = DateTime.formatIso(yield* DateTime.now);
-    const credentials: { vendor: (typeof vendors)[number]; key: string; fingerprint: string }[] =
-      [];
+    const credentials: {
+      vendor: (typeof vendors)[number];
+      key: string;
+      fingerprint: string;
+      quotaHeaders?: { organization: string | null; project: string | null } | undefined;
+    }[] = [];
     const seen = new Set<string>();
     const configured = yield* readConfiguredApiProviders(env);
     const matchesEndpoint = (baseURL: string | null, vendor: (typeof vendors)[number]) =>
       baseURL !== null &&
-      [vendor.origin, `${vendor.origin}/v1`].includes(baseURL.replace(/\/+$/, ""));
+      [
+        vendor.origin,
+        `${vendor.origin}/v1`,
+        ...(vendor.id.includes("coding-plan") ? [`${vendor.origin}/api/coding/paas/v4`] : []),
+      ].includes(baseURL.replace(/\/+$/, ""));
     const sources = [
       ...vendors.map((vendor) => ({
         vendor,
@@ -147,31 +167,51 @@ export const readOpenCodeApiBalances = Effect.fn("OpenCode.readApiBalances")(fun
       )?.trim();
       if (!key) continue;
       const fingerprint = yield* digest
-        .digest(Digest.sha256, new TextEncoder().encode(`api-balance:${vendor.vendor}\0${key}`))
+        .digest(
+          Digest.sha256,
+          new TextEncoder().encode(
+            `api-balance:${vendor.vendor}\0${key}${vendor.vendor === "glm" && config?.quotaHeaders ? `\0${config.quotaHeaders.organization ?? ""}\0${config.quotaHeaders.project ?? ""}` : ""}`,
+          ),
+        )
         .pipe(Effect.map(Hex.encode), Effect.orDie);
       if (seen.has(fingerprint)) continue;
       seen.add(fingerprint);
-      credentials.push({ vendor, key, fingerprint });
+      credentials.push({ vendor, key, fingerprint, quotaHeaders: config?.quotaHeaders });
     }
     return yield* Effect.forEach(
       credentials,
-      ({ vendor, key, fingerprint }) => {
+      ({ vendor, key, fingerprint, quotaHeaders }) => {
         const base: ServerProviderApiBalance = {
           vendor: vendor.vendor,
           credentialFingerprint: fingerprint,
           checkedAt,
           balances: [],
+          ...(vendor.id.includes("coding-plan") ? { accountType: "subscription" as const } : {}),
         };
         if (vendor.endpoint === null)
           return Effect.succeed<ServerProviderApiBalance>({ ...base, unavailable: "unsupported" });
         return Effect.gen(function* () {
           const client = yield* HttpClient.HttpClient;
-          const response = yield* client.execute(
-            HttpClientRequest.get(`${vendor.origin}${vendor.endpoint}`).pipe(
-              HttpClientRequest.bearerToken(key),
-            ),
-          );
+          const team =
+            vendor.vendor === "glm" && quotaHeaders?.organization && quotaHeaders.project;
+          let request = HttpClientRequest.get(
+            `${vendor.origin}${vendor.endpoint}${team ? "?type=2" : ""}`,
+          ).pipe(HttpClientRequest.bearerToken(key));
+          if (team)
+            request = request.pipe(
+              HttpClientRequest.setHeaders({
+                "Bigmodel-Organization": quotaHeaders.organization!,
+                "Bigmodel-Project": quotaHeaders.project!,
+              }),
+            );
+          const response = yield* client.execute(request);
           yield* HttpClientResponse.filterStatusOk(response);
+          if (vendor.vendor === "glm") {
+            const result = yield* HttpClientResponse.schemaBodyJson(GlmQuota)(response);
+            const windows = glmUsageWindows(result);
+            if (windows.length === 0) return { ...base, unavailable: "probeFailed" as const };
+            return { ...base, windows };
+          }
           if (vendor.vendor === "deepseek") {
             const result = yield* HttpClientResponse.schemaBodyJson(DeepSeekBalance)(response);
             return {

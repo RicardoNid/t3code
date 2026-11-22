@@ -17,6 +17,7 @@ import {
   type LimitPoolWindow,
 } from "@t3tools/shared/usageLimits";
 import {
+  formatResetsIn,
   collectExternalUsageLinks,
   collectLimitNotices,
   cursorUsageWindowDetails,
@@ -540,13 +541,40 @@ export function UsageLimitsSection({
                   <ApiBalanceIcon vendor={balance.vendor} />
                   <Text className="text-sm font-t3-medium text-foreground">
                     {apiBalanceVendorLabel(balance.vendor)}
+                    {balances.filter((a) => a.balance.vendor === balance.vendor).length > 1
+                      ? ` · ${balances.findIndex((a) => a.id === id) + 1}`
+                      : ""}
                   </Text>
                 </View>
+                {balance.windows?.map((window) => (
+                  <View key={window.id} className="gap-1">
+                    <Text className="text-sm text-foreground">
+                      {window.label} ·{" "}
+                      {gt("{remaining}% left", { remaining: remainingPercent(window) })}
+                    </Text>
+                    <View className="h-2 overflow-hidden rounded-full bg-grouped-card">
+                      <View
+                        style={{
+                          width: `${remainingPercent(window)}%`,
+                          height: 8,
+                          backgroundColor: colors.opencode,
+                        }}
+                      />
+                    </View>
+                    {window.resetsAt ? (
+                      <Text className="text-xs text-foreground-muted">
+                        {formatResetsIn(window, now, m)}
+                      </Text>
+                    ) : null}
+                  </View>
+                ))}
                 {balance.unavailable ? (
                   <Text className="text-xs text-foreground-muted">
                     {balance.unavailable === "unsupported"
                       ? gt("Balance lookup unavailable")
-                      : gt("Balance unavailable. Refresh to retry.")}
+                      : balance.accountType === "subscription"
+                        ? gt("Usage unavailable. Refresh to retry.")
+                        : gt("Balance unavailable. Refresh to retry.")}
                   </Text>
                 ) : (
                   balance.balances.map((amount) => (
