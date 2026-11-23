@@ -9555,14 +9555,6 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                   detail: `Provider turn ${turnInput.providerTurnId} is not active and cannot be steered.`,
                 });
               }
-              // A wake turn has no prompt of its own to steer; its reply ends the run soon.
-              if (context.promptSequence === 0) {
-                return yield* new ProviderAdapter.ProviderAdapterSteerDeclinedError({
-                  driver,
-                  providerThreadId: turnInput.providerThread.id,
-                  providerTurnId: turnInput.providerTurnId,
-                });
-              }
               const generation = yield* Ref.get(runtimeCallbackGeneration);
               const checkPromptOutcome =
                 flavor.watchPromptOutcome === undefined
@@ -9969,8 +9961,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             (effect, turnInput) =>
               effect.pipe(
                 Effect.mapError((cause) =>
-                  cause._tag === "ProviderAdapterSteerRunUnsupportedError" ||
-                  cause._tag === "ProviderAdapterSteerDeclinedError"
+                  cause._tag === "ProviderAdapterSteerRunUnsupportedError"
                     ? cause
                     : new ProviderAdapter.ProviderAdapterSteerRunError({
                         driver,

@@ -1414,6 +1414,57 @@ describe("AntigravityAdapterV2 work after the prompt ends", () => {
     }).pipe(Effect.provide(layerSession)),
   );
 
+  it.effect("steers a background wake reply without cancelling its work", () =>
+    Effect.gen(function* () {
+      const opened = yield* openSessionWithRunningCommand({ IsDaemon: true }, undefined, {
+        agentVersion: "1.5.11",
+        holdsFirstPrompt: false,
+      });
+      yield* opened.startTurn(1, false);
+      yield* opened.throughTerminal;
+      yield* opened.send({
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "The background task is ready; checking the result." },
+      });
+      assert.lengthOf(opened.offers, 1);
+      yield* opened.offers[0]!.dispatchIfCurrent!(Effect.void);
+      yield* opened.startTurn(2, true);
+      const started = yield* opened.until(
+        (event) =>
+          event.type === "provider_turn.updated" && event.providerTurn.status === "running",
+      );
+      const turn = started.findLast((event) => event.type === "provider_turn.updated");
+      if (turn?.type !== "provider_turn.updated") return assert.fail("the wake turn must start");
+
+      yield* opened.session.steerTurn({
+        threadId: ThreadId.make("thread-antigravity-wake"),
+        runId: RunId.make("run-antigravity-wake-2"),
+        providerThread: opened.providerThread,
+        providerTurnId: turn.providerTurn.id,
+        message: {
+          messageId: MessageId.make("message-antigravity-wake-steer"),
+          text: "Check the other file first",
+          attachments: [],
+          createdBy: "user",
+          creationSource: "web",
+        },
+      });
+      assert.equal(opened.cancels(), 0);
+      assert.lengthOf(opened.prompts, 2);
+      assert.deepEqual(opened.prompts[1]!.prompt, [
+        { type: "text", text: "Check the other file first" },
+      ]);
+      yield* opened.send({
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "Checking the other file." },
+      });
+      yield* opened.send(opened.usage);
+      yield* opened.releaseSteer;
+      const terminal = (yield* opened.throughTerminal).at(-1);
+      assert.equal(terminal?.type === "turn.terminal" && terminal.status, "completed");
+    }).pipe(Effect.provide(layerSession)),
+  );
+
   it.effect("steers a run held open by a detached subagent without stopping it", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
